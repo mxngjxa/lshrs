@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.poetry]
+name = "recommendation-system"
+version = "1.0.0"
+description = "A recommendation system package for preprocessing text and providing similarity-based recommendations."
+authors = ["Your Name <your.email@example.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.6"
+hashlib = "*"
+scikit-learn = "*"
+
+[tool.poetry.dev-dependencies]
+
+[tool.poetry.scripts]
+recommendation_system = "recommendation_system.__main__:main"
+
+[tool.poetry.extras]
+
+[tool.poetry.publish]

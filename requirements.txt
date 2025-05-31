@@ -1,0 +1,8 @@
+datasketch
+nltk
+numpy
+scipy
+scikit-learn
+pandas
+gc
+scikit-sparse
