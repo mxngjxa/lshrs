@@ -26,6 +26,7 @@ class LSHREC:
         Recommends similar documents to the given document
         '''
         pass
+    
     def evaluate(self, document: str) -> list:
         '''
         Evaluates the recommendation system with the given document
