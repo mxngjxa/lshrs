@@ -27,12 +27,33 @@ nltk.download('wordnet', download_dir=desired_directory)
 stop_words = set(stopwords.words('english'))
 
 class recommendation_system:
+    """
+    A system for recommending similar documents based on their text content
+    using Locality Sensitive Hashing (LSH).
+
+    The process involves:
+    1. Preprocessing: Cleaning text, removing stopwords, and lemmatization.
+    2. Shingling: Converting documents into sets of k-shingles (contiguous sequences of k words).
+    3. Indexing (MinHashing): Creating a signature matrix representing documents with MinHash signatures.
+    4. LSH: Hashing signatures into buckets to find candidate similar pairs.
+    5. Querying: Finding documents similar to a given query text.
+    """
 
     def __init__(self, data, target):
+        """
+        Initializes the recommendation system.
+
+        Args:
+            data (list): A list of strings, where each string is a document.
+            target (list): A list of identifiers or labels corresponding to each document in `data`.
+        """
         self.raw_data = data
         self.target = target
 
     def __repr__(self):
+        """
+        Provides a string representation of the recommendation_system object's current state.
+        """
         if not hasattr(self, 'preprocessed') or self.preprocessed is None:
             return f"Raw text of length {len(self.raw_data)}. Awaiting preprocessing."
         elif not hasattr(self, 'shingled') or self.shingled is None:
@@ -45,10 +66,19 @@ class recommendation_system:
             return f"Text preprocessed, shingled into {self.k}-token shingles, indexed using MinHash with {self.permutations} permutations, and ready for querying with LSH using {self.b} bands and {self.r} rows per band."
 
 
-    #clean, remove stopwords, and lemmatize data
     def preprocess(self):
         """
-        Takes in raw data and converts it into a list of lemmatized shingles.
+        Cleans, removes stopwords, and lemmatizes the raw input data.
+
+        The raw data (list of document strings) is processed by:
+        1. Splitting into words.
+        2. Removing non-alphanumeric characters from each word.
+        3. Converting words to lowercase.
+        4. Removing common English stopwords.
+        5. Lemmatizing words to their base form.
+
+        Sets `self.preprocessed` to a list of lists, where each inner list
+        contains the processed tokens for a document.
         """
         print("Preprocessing.")
         data = list()
@@ -66,11 +96,22 @@ class recommendation_system:
         print("Preprocessing Complete, please apply shingling function.")
 
 
-    #transform document into shingles
-    def shingle(self, k):
+    def shingle(self, k: int):
         """
-        Returns self.post_shingle, list of data [index:int, [list_of_shingles]]
-        creates self.shingle_array: list of all shingles in the document
+        Transforms preprocessed documents into k-shingles.
+
+        A k-shingle is a contiguous sequence of k tokens. This method generates
+        shingles for each document based on the preprocessed tokens.
+
+        Args:
+            k (int): The number of tokens in each shingle.
+
+        Sets:
+            self.k (int): The shingle size used.
+            self.post_shingle (list): A list of lists, where each inner list
+                                      contains the shingles for a document.
+            self.shingle_set (set): A set of all unique shingles found across all documents.
+            self.shingle_array (list): A list of all unique shingles (derived from `shingle_set`).
         """
         self.k = k
         print(f"Applying shingling function.")
@@ -95,8 +136,15 @@ class recommendation_system:
 
     def perm_array(self, array_size):
         """
-        Generates a permuation array with length of the total number of shingles.
-        Helper function for generate_permutation_matrix
+        Generates a permutation array of a given size.
+
+        This is a helper function for `generate_permutation_matrix`.
+
+        Args:
+            array_size (int): The size of the array to permute (typically the total number of unique shingles).
+
+        Returns:
+            numpy.ndarray: A shuffled array of integers from 0 to `array_size` - 1.
         """
         a = np.arange(array_size)
         np.random.shuffle(a)
@@ -105,7 +153,13 @@ class recommendation_system:
 
     def generate_permutation_matrix(self):
         """
-        Creates permutation matrix, with rows as permutations of length equal to number of total shingles.
+        Creates a permutation matrix for MinHashing.
+
+        The matrix has `self.permutations` rows, and each row is a random permutation
+        of shingle indices (from 0 to `self.shingle_count` - 1).
+
+        Returns:
+            pandas.DataFrame: The permutation matrix, where each row is a permutation.
         """
         pm = list()
         for i in range(self.permutations):
@@ -120,8 +174,14 @@ class recommendation_system:
 
     def one_hot_encode(self):
         """
-        One-Hot encode the list of shingled data. Returns self.one_hot_matrix with
-        rows as documents and colums as one-hot indexes.
+        One-hot encodes the shingled data.
+
+        Transforms the list of shingled documents (`self.post_shingle`) into a
+        sparse matrix where rows represent documents and columns represent unique
+        shingles. A '1' indicates the presence of a shingle in a document.
+
+        Returns:
+            scipy.sparse.csr_matrix: A sparse matrix representing the one-hot encoded shingled documents.
         """
         pd_data = pd.Series(self.post_shingle)
 
@@ -141,8 +201,24 @@ class recommendation_system:
     #use minhashing to permute data into a signature matrix
     def index(self, permutations: int):
         """
-        Creates a Signature Matrix with columns as documents and rows as number of permutations
-        after applying it to the
+        Creates a Signature Matrix using MinHashing.
+
+        The Signature Matrix approximates the Jaccard similarity between documents.
+        Each column represents a document, and each row corresponds to a hash function
+        (permutation). The value at `(i, j)` is the minimum hash value of shingle indices
+        present in document `j` according to permutation `i`.
+
+        Args:
+            permutations (int): The number of permutations (hash functions) to use for MinHashing.
+                                This determines the number of rows in the signature matrix.
+
+        Sets:
+            self.permutations (int): The number of permutations used.
+            self.doc_count (int): The number of documents.
+            self.shingle_count (int): The number of unique shingles.
+            self.signature_matrix (pandas.DataFrame): The resulting signature matrix.
+            self.one_hot (scipy.sparse.csr_matrix): The one-hot encoded representation of shingles.
+            self.perm_matrix (pandas.DataFrame): The permutation matrix used for MinHashing.
         """
         print("MinHashing initiated.")
         self.permutations = permutations
@@ -178,17 +254,52 @@ class recommendation_system:
         print("Minhashing processing complete, proceed to LSH.")
 
 
-    #compute the optimal number of bands and rows per band using a seperate function
-    def pre_lsh(self, x: int):
+    def pre_lsh(self, n_permutations: int):
+        """
+        Computes the optimal number of bands (b) and rows per band (r) for LSH.
+
+        This method uses the `OptimalBR` class to find `b` and `r` such that
+        `b * r` is close to `n_permutations`.
+
+        Args:
+            n_permutations (int): The total number of permutations (rows in the signature matrix).
+
+        Sets:
+            self.b (int): The optimal number of bands.
+            self.r (int): The optimal number of rows per band.
+
+        Returns:
+            str: A message indicating the computed b and r values.
+        """
         # Compute optimal b and r based on n
         best_br = OptimalBR()
-        self.b, self.r = best_br.br(x)
+        self.b, self.r = best_br.br(n_permutations)
         return f"{self.b} bands and {self.r} rows per band computed."
 
 
-    #use lsh_256 to hash items into buckets. LSH processing is complete after this.
-    def lsh_256(self, b = None, r = None):
-       #complete lsh and returns a dictionary with lsh values as keys and set of documents sorted in as values
+    def lsh_256(self, b: int = None, r: int = None):
+        """
+        Applies Locality Sensitive Hashing (LSH) to the signature matrix.
+
+        Divides the signature matrix into `b` bands, each with `r` rows.
+        For each band, documents are hashed into buckets. Documents that hash
+        to the same bucket in at least one band are considered candidate similar pairs.
+
+        Args:
+            b (int, optional): The number of bands. If None, it's computed automatically.
+            r (int, optional): The number of rows per band. If None, it's computed automatically.
+
+        Sets:
+            self.b (int): The number of bands used.
+            self.r (int): The number of rows per band used.
+            self.lsh_buckets (dict): A dictionary where keys are hash values (band-specific)
+                                     and values are sets of document targets (identifiers)
+                                     that hashed to that key.
+
+        Raises:
+            ValueError: If the signature matrix is not initialized or if `b * r`
+                        does not equal `self.permutations` when `b` and `r` are provided.
+        """
         if self.signature_matrix is None:
             raise ValueError("Signature matrix is not initialized.")
         print("LSH initiated.")
@@ -218,13 +329,32 @@ class recommendation_system:
         print(f"LSH complete with {self.b} bands and {self.r} rows.")
 
 
-    #completes all the previous steps for a unique string and sees which data bucket it would likely fit into.
     def query(self, data_test: str, topk: int):
+        """
+        Finds the top-k most similar documents to a given query string.
 
+        The query string undergoes the same preprocessing, shingling, and MinHashing
+        steps as the original dataset. Then, LSH is used to identify candidate
+        similar documents from the `self.lsh_buckets`.
+
+        Args:
+            data_test (str): The query string for which to find similar documents.
+            topk (int): The number of most similar documents to return.
+
+        Returns:
+            dict: A dictionary where keys are document targets (identifiers) and
+                  values are their similarity scores (counts of shared LSH buckets
+                  with the query). The dictionary contains the top-k candidates.
+
+        Raises:
+            ValueError: If shingling and LSH parameters (k, permutations, b, r)
+                        are not initialized.
+        """
         if not all(hasattr(self, attr) for attr in ['k', 'permutations', 'b', 'r']):
             raise ValueError("Shingling and LSH parameters are not initialized.")
 
         #initiated document querying
+        print(f"Querying with text: '{data_test[:50]}...'") # Print start of query text
         query_data = data_test.split()
         for i in range(len(query_data)):
             query_data[i] = re.sub(r'\W+', '', query_data[i])
@@ -275,8 +405,26 @@ class recommendation_system:
         return topk_candidates
 
 
-    #after querying, find the most likely candidtates the queried text would fit into.
-    def find_candidates(self, query_keys):
+    def find_candidates(self, query_keys: set):
+        """
+        Finds candidate documents from LSH buckets that match the query's LSH keys.
+
+        Compares the LSH keys generated for a query document with the LSH buckets
+        of the main dataset. Documents sharing one or more LSH keys with the query
+        are considered candidates. Their scores are incremented based on the number
+        of shared keys.
+
+        Args:
+            query_keys (set): A set of LSH hash keys generated for the query document.
+
+        Returns:
+            dict: A dictionary of candidate document targets (identifiers) and their
+                  similarity scores (number of matching LSH keys), sorted by score
+                  in descending order.
+
+        Raises:
+            ValueError: If LSH buckets are not initialized.
+        """
         if self.lsh_buckets is None:
             raise ValueError("LSH buckets are not initialized.")
 
@@ -298,6 +446,12 @@ class recommendation_system:
 
 
 def main():
+    """
+    Main function to demonstrate the usage of the recommendation_system.
+
+    It initializes the system with sample data, performs preprocessing,
+    shingling, MinHashing, LSH, and then queries for similar articles.
+    """
     # Sample raw data
     raw_data = ['From: v064mb9k@ubvmsd.cc.buffalo.edu (NEIL B. GANDLER)\nSubject: Need info on 88-89 Bonneville\nOrganization: University at Buffalo\nLines: 10\nNews-Software: VAX/VMS VNEWS 1.41\nNntp-Posting-Host: ubvmsd.cc.buffalo.edu\n\n\n I am a little confused on all of the models of the 88-89 bonnevilles.\nI have heard of the LE SE LSE SSE SSEI. Could someone tell me the\ndifferences are far as features or performance. I am also curious to\nknow what the book value is for prefereably the 89 model. And how much\nless than book value can you usually get them for. In other words how\nmuch are they in demand this time of year. I have heard that the mid-spring\nearly summer is the best time to buy.\n\n\t\t\tNeil Gandler\n',
 
