@@ -83,14 +83,20 @@ class recommendation_system:
         print("Preprocessing.")
         data = list()
         for i in range(len(self.raw_data)):
-            #remove non-alphanumeric characters
-            data.append(self.raw_data[i].split())
-            for j in range(len(data[i])):
-                data[i][j] = re.sub(r'\W+', '', data[i][j])
-            #stopword removed
-            data[i] = [w.lower() for w in data[i] if w not in stop_words]
-            #lemmatized
-            data[i] = [lem.lemmatize(w) for w in data[i]]
+            # Split document into words
+            current_doc_words = self.raw_data[i].split()
+            processed_words = []
+            for word in current_doc_words:
+                # Remove non-alphanumeric characters
+                cleaned_word = re.sub(r'\W+', '', word)
+                if cleaned_word: # Ensure word is not empty after cleaning
+                    processed_words.append(cleaned_word)
+            
+            # Convert to lowercase and remove stopwords
+            processed_words = [w.lower() for w in processed_words if w.lower() not in stop_words]
+            # Lemmatize words
+            processed_words = [lem.lemmatize(w) for w in processed_words]
+            data.append(processed_words)
 
         self.preprocessed = data
         print("Preprocessing Complete, please apply shingling function.")
@@ -119,15 +125,21 @@ class recommendation_system:
         self.shingle_set = set()
 
         for i in range(len(self.preprocessed)):
-            self.post_shingle.append(list())
-            for j in range(len(self.preprocessed[i]) - self.k):
-                #append new shingle as list
+            doc_shingles = []
+            # Iterate through the tokens of the document to create k-shingles
+            for j in range(len(self.preprocessed[i]) - self.k + 1): # Adjusted loop to include last possible shingle
+                # Extract k tokens to form a shingle
                 shingle_list = self.preprocessed[i][j:j + self.k]
+                # Join tokens to form the shingle string
                 shingle = " ".join([s for s in shingle_list])
+                # Add to document's shingle list
+                doc_shingles.append(shingle)
+                # Add to the global set of unique shingles
                 if shingle not in self.shingle_set:
                     self.shingle_set.add(shingle)
-                self.post_shingle[i].append(shingle)
+            self.post_shingle.append(doc_shingles)
 
+        # Convert the set of unique shingles to a list for consistent ordering (though order isn't strictly necessary for set operations)
         self.shingle_array = list(self.shingle_set)
         #print("shingled_data", self.post_shingle)
         #[[0, ['This first document', 'first document sure']], [1, ['This document second', 'document second document', 'second document whatever']]]
@@ -162,9 +174,11 @@ class recommendation_system:
             pandas.DataFrame: The permutation matrix, where each row is a permutation.
         """
         pm = list()
+        # For each desired permutation, generate a shuffled array of shingle indices
         for i in range(self.permutations):
             pm.append(self.perm_array(self.shingle_count))
 
+        # Convert the list of permutations into a Pandas DataFrame
         pm = pd.DataFrame(pm)
 
         #print(pm)
@@ -183,15 +197,20 @@ class recommendation_system:
         Returns:
             scipy.sparse.csr_matrix: A sparse matrix representing the one-hot encoded shingled documents.
         """
+        # Convert the list of shingled documents to a Pandas Series for MultiLabelBinarizer
         pd_data = pd.Series(self.post_shingle)
 
+        # Initialize MultiLabelBinarizer to convert lists of shingles into a binary matrix
         mlb = MultiLabelBinarizer()
 
+        # Fit and transform the data to get the one-hot encoded matrix
+        # `mlb.classes_` will be the unique shingles, serving as column names
         res = pd.DataFrame(mlb.fit_transform(pd_data),
                         columns=mlb.classes_,
-                        index=pd_data.index)
+                        index=pd_data.index) # Documents are rows
+        # Convert the dense DataFrame to a sparse CSR matrix for memory efficiency
         sparse = csr_matrix(res)
-        del res
+        del res # Free up memory from the dense DataFrame
 
         #print(sparse)
         print("One-Hot Encoding Complete")
@@ -227,26 +246,31 @@ class recommendation_system:
         self.doc_count = len(self.post_shingle)
         self.shingle_count = len(self.shingle_array)
 
-        #generate signature matrix and correct type
+        # Initialize an empty signature matrix with permutations as rows and documents as columns
         self.signature_matrix = pd.DataFrame(index=range(self.permutations), columns=range(self.doc_count))
 
-
+        # Perform one-hot encoding of shingles for all documents
         self.one_hot = self.one_hot_encode()
+        # Generate the matrix of random permutations of shingle indices
         self.perm_matrix = self.generate_permutation_matrix()
         
-        # Convert one_hot to a numpy array for faster processing
+        # Convert the sparse one-hot matrix to a dense NumPy array for efficient row-wise operations
+        # This can be memory-intensive for very large datasets.
         one_hot_np = self.one_hot.toarray()
 
-        # Iterate over permutations
-        for xdoc_id in range(self.doc_count):
-            # Get the positions of ones in the one-hot encoded matrix for the current document
-            ones_positions = np.where(one_hot_np[xdoc_id] == 1)[0]
-            for perm_index, perm_row in self.perm_matrix.iterrows():
-                # Get the shingle locations in order
-                perm_row_filtered = perm_row[ones_positions]
-                min_perm = perm_row_filtered.min()
-                self.signature_matrix.at[perm_index, xdoc_id] = min_perm
+        # Iterate over each document to compute its MinHash signature
+        for doc_idx in range(self.doc_count):
+            # Find the indices of shingles present in the current document (where one_hot_np is 1)
+            shingle_indices_in_doc = np.where(one_hot_np[doc_idx] == 1)[0]
+            
+            # Iterate over each permutation (hash function)
+            for perm_idx, perm_shingle_order in self.perm_matrix.iterrows():
+                # For the current permutation, find the minimum permuted index of a shingle present in the document
+                # This is the core MinHash computation for one (permutation, document) pair.
+                min_hash_val = perm_shingle_order[shingle_indices_in_doc].min()
+                self.signature_matrix.at[perm_idx, doc_idx] = min_hash_val
 
+        # Ensure the signature matrix contains integer values
         self.signature_matrix = self.signature_matrix.astype(int)
         # Print the signature matrix
         # print(self.signature_matrix)
@@ -304,28 +328,47 @@ class recommendation_system:
             raise ValueError("Signature matrix is not initialized.")
         print("LSH initiated.")
 
+        # Check if b (bands) and r (rows per band) are provided
         if b and r:
-        # If two parameters are passed, assume they are 'b' and 'r'
+            # Use provided b and r
             self.b, self.r = b, r
+            # Validate that b * r equals the total number of permutations
             if self.b * self.r != self.permutations:
                 raise ValueError(f"Number of Bands and Rows invalid, product must be equal to {self.permutations}.")
         else:
-        #simply automatically calculate the numebr of b and r using the function
+            # Automatically calculate optimal b and r if not provided
             self.pre_lsh(self.permutations)
+        
+        # Initialize a dictionary to store LSH buckets
+        # Keys will be hash values of bands, values will be sets of document targets
         self.lsh_buckets = dict()
 
+        # Iterate over each document's signature
         for doc_id in range(self.doc_count):
-            signature_array = [x for x in self.signature_matrix[doc_id]]
-            doc_group = self.target[doc_id]
+            # Extract the signature (column) for the current document
+            signature_column = self.signature_matrix[doc_id].tolist()
+            # Get the target/identifier for the current document
+            doc_target_id = self.target[doc_id]
 
-            for band_index in range(self.b):
-                start = band_index * self.r
-                band_key = hashlib.sha256("".join([str(line) for line in signature_array[start:start + self.r]])\
-                    .encode('utf-8')).hexdigest()
-                if band_key in self.lsh_buckets.keys():
-                    self.lsh_buckets[band_key].add(doc_group)
+            # Divide the signature into bands
+            for band_idx in range(self.b):
+                # Determine the start and end row for the current band
+                start_row = band_idx * self.r
+                end_row = start_row + self.r
+                # Extract the portion of the signature corresponding to the current band
+                band_values = signature_column[start_row:end_row]
+                
+                # Hash the band values to a single key (e.g., using SHA256)
+                # Concatenate string representations of integers in the band
+                band_string_representation = "".join([str(val) for val in band_values])
+                # Encode to bytes and then hash
+                band_hash_key = hashlib.sha256(band_string_representation.encode('utf-8')).hexdigest()
+                
+                # Add the document's target ID to the bucket corresponding to this band's hash key
+                if band_hash_key in self.lsh_buckets:
+                    self.lsh_buckets[band_hash_key].add(doc_target_id)
                 else:
-                    self.lsh_buckets[band_key] = {doc_group}
+                    self.lsh_buckets[band_hash_key] = {doc_target_id}
         print(f"LSH complete with {self.b} bands and {self.r} rows.")
 
 
@@ -353,56 +396,86 @@ class recommendation_system:
         if not all(hasattr(self, attr) for attr in ['k', 'permutations', 'b', 'r']):
             raise ValueError("Shingling and LSH parameters are not initialized.")
 
-        #initiated document querying
-        print(f"Querying with text: '{data_test[:50]}...'") # Print start of query text
-        query_data = data_test.split()
-        for i in range(len(query_data)):
-            query_data[i] = re.sub(r'\W+', '', query_data[i])
-        #stopword removed
-        query_data = [w.lower() for w in query_data if w not in stop_words]
-        #lemmatized
-        query_data = [lem.lemmatize(w) for w in query_data]
+        # --- Preprocess the query text ---
+        print(f"Querying with text: '{data_test[:50]}...'")
+        query_words = data_test.split()
+        processed_query_words = []
+        for word in query_words:
+            cleaned_word = re.sub(r'\W+', '', word)
+            if cleaned_word:
+                processed_query_words.append(cleaned_word)
+        processed_query_words = [w.lower() for w in processed_query_words if w.lower() not in stop_words]
+        lemmatized_query_words = [lem.lemmatize(w) for w in processed_query_words]
 
+        # --- Shingle the preprocessed query text ---
+        query_shingles_list = []
+        if len(lemmatized_query_words) >= self.k: # Ensure there are enough words to form at least one shingle
+            for i in range(len(lemmatized_query_words) - self.k + 1):
+                shingle_tokens = lemmatized_query_words[i:i + self.k]
+                query_shingles_list.append(" ".join(shingle_tokens))
+        
+        # --- One-hot encode the query shingles against the known shingle universe ---
+        # `self.shingle_array` contains all unique shingles from the training data
+        query_one_hot_vector = np.full((self.shingle_count), 0, dtype=int)
+        # Create a mapping from shingle string to its index in self.shingle_array for quick lookup
+        shingle_to_idx_map = {shingle: i for i, shingle in enumerate(self.shingle_array)}
+        for shingle in query_shingles_list:
+            if shingle in shingle_to_idx_map:
+                query_one_hot_vector[shingle_to_idx_map[shingle]] = 1
 
-        #shingling data
-        query_shingles = list()
+        # --- Compute MinHash signature for the query text ---
+        query_signature = np.full((self.permutations), np.inf) # Initialize with infinity
 
-        for i in range(len(query_data)):
-            shingle = query_data[i]
-            query_shingles.append(shingle)
+        # Find indices of shingles present in the query
+        shingle_indices_in_query = np.where(query_one_hot_vector == 1)[0]
 
-        #one hot encoding
-        one_hot_encoded_list = np.full((self.shingle_count), 0)
+        if shingle_indices_in_query.size > 0: # Proceed only if the query has known shingles
+            for perm_idx, perm_shingle_order in self.perm_matrix.iterrows():
+                # Get the permuted order for shingles present in the query
+                permuted_indices_for_query_shingles = perm_shingle_order[shingle_indices_in_query]
+                # The MinHash value for this permutation is the minimum of these permuted indices
+                query_signature[perm_idx] = permuted_indices_for_query_shingles.min()
+        
+        # Replace np.inf with a value indicating no match if any permutation didn't find a shingle
+        # (e.g., if a query has no common shingles, its signature might remain all np.inf)
+        # For LSH, these high values will likely not match anything.
+        # A more robust approach might be to handle cases where shingle_indices_in_query is empty earlier.
+        query_signature[query_signature == np.inf] = self.shingle_count # Or some other large, out-of-bounds value
 
-        for i in range(len(self.shingle_array)):
-            if self.shingle_array[i] in query_shingles:
-                one_hot_encoded_list[i] = 1
+        # --- Apply LSH to the query's signature ---
+        query_lsh_keys = set()
+        for band_idx in range(self.b):
+            start_row = band_idx * self.r
+            end_row = start_row + self.r
+            band_values = query_signature[start_row:end_row]
+            
+            band_string_representation = "".join([str(int(val)) for val in band_values]) # Ensure integer strings
+            band_hash_key = hashlib.sha256(band_string_representation.encode('utf-8')).hexdigest()
+            query_lsh_keys.add(band_hash_key)
+        
+        print(f"Query LSH keys: {query_lsh_keys}")
 
-        #create a mini permutation matrix
-        signature_list = np.full((self.permutations), 0)
-
-        for perm_index, perm_row in self.perm_matrix.iterrows():
-            for c in range(self.shingle_count):
-                p = perm_row[c]
-                if one_hot_encoded_list[p] == 1:
-                    signature_list[perm_index] = p
-                    break
-
-        #apply lsh and hash into lsh_buckets dictionary
-        lsh_keys = set()
-
-        for band_index in range(self.b):
-            start = band_index * self.r
-            band_key = hashlib.sha256("".join([str(line) for line in signature_list[start:start + self.r]])\
-                .encode('utf-8')).hexdigest()
-            lsh_keys.add(band_key)
-        print(lsh_keys)
-
-        # Find candidates using LSH
-        candidates = self.find_candidates(lsh_keys)
-        topk_candidates = dict(candidates.items()[:topk])
-        # Return topK most similar articles
-        return topk_candidates
+        # --- Find candidate documents based on matching LSH keys ---
+        candidate_docs = self.find_candidates(query_lsh_keys)
+        
+        # --- Select top-k candidates ---
+        # `find_candidates` already sorts, so we can take the top items.
+        # Note: `dict.items()` in Python 3.x returns a view, convert to list for slicing if needed,
+        # or iterate and build the topk dict.
+        # `sorted_candidates` in `find_candidates` is already a dict.
+        
+        # Convert to list of items to sort and then take topk
+        # find_candidates returns a dict sorted by value (similarity score)
+        # To get topk, we need to sort by score in descending order.
+        # The current find_candidates sorts in ascending order. Let's fix that or re-sort here.
+        # Assuming find_candidates returns dict sorted ascending by count.
+        
+        # Re-sorting here for clarity, ensuring descending order of similarity
+        sorted_candidate_list = sorted(candidate_docs.items(), key=lambda item: item[1], reverse=True)
+        
+        topk_results = dict(sorted_candidate_list[:topk])
+        
+        return topk_results
 
 
     def find_candidates(self, query_keys: set):
@@ -430,17 +503,19 @@ class recommendation_system:
 
         candidates = {}
 
-        # Iterate over each item in the large dataset LSH buckets
-        for key, bucket in self.lsh_buckets.items():
-            if key in query_keys:
-                for item in bucket:
-                    if item not in candidates.keys():
-                        candidates[item] = 1
-                    else:
-                        candidates[item] += 1
+        # Iterate over the LSH buckets of the main dataset
+        for lsh_key, doc_targets_in_bucket in self.lsh_buckets.items():
+            # If this LSH key from the dataset matches one of the query's LSH keys
+            if lsh_key in query_keys:
+                # Increment the score for each document target found in this matching bucket
+                for doc_target in doc_targets_in_bucket:
+                    if doc_target not in candidates:
+                        candidates[doc_target] = 0
+                    candidates[doc_target] += 1
 
-        # Sort the candidates in descending order
-        sorted_candidates = dict(sorted(candidates.items(), key=lambda item: item[1]))
+        # Sort the candidate documents by their similarity score (number of matching LSH keys)
+        # Sorting in descending order to get the most similar items first.
+        sorted_candidates = dict(sorted(candidates.items(), key=lambda item: item[1], reverse=True))
 
         return sorted_candidates
 
