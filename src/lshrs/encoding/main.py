@@ -1,0 +1,1 @@
+# convertes the vectorized output of the embeddings to a binary vector using hyperplane cosine similarity
