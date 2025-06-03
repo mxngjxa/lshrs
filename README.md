@@ -46,7 +46,7 @@ flowchart TD
     end
 
     subgraph jaccard
-    G1 --> I1
+    G1 --> I1["OneHot Encoding"]
     I1 --> I2["MinHash"]
     end
 
