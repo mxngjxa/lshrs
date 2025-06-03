@@ -8,11 +8,13 @@ flowchart TD
 
     A[("Text Documents")] --> B{{"DataLoader\n(utils.dataloader)"}}
 
-    B --> C{{"TextProcessor\n(preprocessing.text_processor)"}}
+    B --> C{{"TextProcessor
+    (preprocessing.text_processor)"}}
 
     subgraph Preprocessing[preprocessing]
         direction TB
-        C --> C1["Tokenize\n(tokenization)"]
+        C --> C1["Tokenize
+        (tokenization)"]
         C1 --> C2["Lemmatize"]
         C2 --> C3["Remove Symbols"]
     end
@@ -21,26 +23,35 @@ flowchart TD
 
     subgraph Encoding[encoding]
         direction LR
-        D --> E1["TF-IDF\n(tfidf)"]
-        D --> E2["Embeddings\n(embedding)"]
-        D --> E3["OneHot\n(onehot)"]
+        D --> E1["TF-IDF
+        (tfidf)"]
+        D --> E2["Embeddings
+        (embedding)"]
+        D --> E3["OneHot
+        (onehot)"]
     end
 
     subgraph Hashing[hashing]
         direction TB
-        E1 & E2 --> F1["Hyperplane LSH\n(lsh)"]
-        E3 --> F2["MinHash\n(minhash)"]
+        E1 & E2 --> F1["Hyperplane LSH
+        (lsh)"]
+        E3 --> F2["MinHash
+        (minhash)"]
     end
 
-    F1 & F2 --> G{{"Optimal BR\n(utils.optimal_br)"}}
+    F1 & F2 --> G{{"Optimal BR
+    (utils.optimal_br)"}}
     
     subgraph Core[core]
         direction RL
-        G --> H1["LSH Index\n(lsh)"]
-        H1 --> H2["Similarity\n(similarity)"]
+        G --> H1["LSH Index
+        (lsh)"]
+        H1 --> H2["Similarity
+        (similarity)"]
     end
 
-    H2 --> I{{"Recommender\n(recommender)"}}
+    H2 --> I{{"Recommender
+    (recommender)"}}
 
     subgraph Persistence[utils.save]
         direction TB
