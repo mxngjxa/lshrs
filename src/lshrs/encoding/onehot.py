@@ -1,0 +1,1 @@
+# implemente one-hot encoding as a second step to shingling. 
