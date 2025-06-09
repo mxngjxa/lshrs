@@ -7,7 +7,7 @@
 
 """
 Input: documents (The format depends on models)
-Output: result (A matrix with encoding numbers)
+Output: result (A matrix with encoding numbers. Different rows are different documents)
 
 Function Embedding (documents):
     result = Use models to transform documents to vectors
