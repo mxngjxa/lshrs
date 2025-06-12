@@ -15,7 +15,7 @@ packages = [{include = "lshrs", from = "src"}]
 
 [tool.poetry.dependencies]
 python = ">3.11"
-scipy = "1.15.0"
+scipy = "*"
 scikit-learn = "*"
 numpy = "*"
 nltk = "*"
