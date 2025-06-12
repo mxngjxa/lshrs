@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.0] - 2025-06-12
+
+### Changed
+
+- Migrated project to [Poetry](https://python-poetry.org/) for dependency management.
+- Configured `ruff` for code linting and formatting, replacing Pylint.
+- Updated `README.md` with new setup and development instructions.
+
 ## [0.0.1] - 2025-06-12
 
 ### Features
