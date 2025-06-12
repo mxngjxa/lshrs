@@ -1,1 +1,0 @@
-# after the hash values are computed, the recommender can be used to find similar items.

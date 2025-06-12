@@ -1,0 +1,60 @@
+.
+├── CHANGELOG.md
+├── docs
+│   ├── api
+│   ├── architecture.md
+│   ├── examples
+│   ├── index.md
+│   ├── project_structure.txt
+│   └── quickstart.md
+├── examples
+│   ├── advanced_usage.py
+│   └── basic_usage.py
+├── LICENSE
+├── pyproject.toml
+├── README.md
+├── src
+│   └── lshrs
+│       ├── __init__.py
+│       ├── core
+│       │   ├── __init__.py
+│       │   ├── config.py
+│       │   ├── dataloader.py
+│       │   ├── exceptions.py
+│       │   ├── interfaces.py
+│       │   └── main.py
+│       ├── encoding
+│       │   ├── __init__.py
+│       │   ├── embedding.py
+│       │   ├── main.py
+│       │   ├── onehot.py
+│       │   └── tfidf.py
+│       ├── hashing
+│       │   ├── __init__.py
+│       │   ├── hyperplane.py
+│       │   ├── lsh.py
+│       │   └── minhash.py
+│       ├── preprocessing
+│       │   ├── __init__.py
+│       │   ├── lemmatize.py
+│       │   ├── shingling.py
+│       │   ├── stopwords.py
+│       │   └── website.py
+│       └── utils
+│           ├── __init__.py
+│           ├── br.py
+│           ├── helpers.py
+│           ├── save.py
+│           └── similarity.py
+└── tests
+    ├── __init__.py
+    ├── fixtures
+    │   └── sample_data.py
+    ├── integration
+    │   └── test_end_to_end.py
+    └── unit
+        ├── test_hashing.py
+        ├── test_preprocessing.py
+        └── test_recommendation.py
+
+16 directories, 42 files

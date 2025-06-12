@@ -1,1 +1,0 @@
-# computes the simlirity (jaccard or cosine) between two sets of items
