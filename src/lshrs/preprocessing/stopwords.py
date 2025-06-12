@@ -16,4 +16,4 @@ def remove_stopwords(
     :return: A string with stopwords removed.
     """
 
-def
+    pass
