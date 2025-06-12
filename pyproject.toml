@@ -1,6 +1,6 @@
 [project]
 name = "Locality Sensitive Hashing Recommendation System"
-version = "0.0.1"
+version = "0.1.0"
 authors = [
   { name="Y. Zhao", email="yimingzhao936@gmail.com" },
   { name="M. Guan", email="mingjia.guan@outlook.com" },
