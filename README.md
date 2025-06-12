@@ -64,26 +64,60 @@ The project is organized as follows:
 
 ## Installation
 
-This project uses [Poetry](httpss://python-poetry.org/) for dependency management.
+This project uses [Poetry](https://python-poetry.org/) for dependency management. Here’s how to set up the development environment from scratch.
 
-1.  **Create a virtual environment.** It's recommended to create a virtual environment in the project's root directory.
+### 1. Install `pipx` (Recommended)
 
+`pipx` is a tool to help you install and run Python applications in isolated environments. It's the recommended way to install `poetry`.
+
+```bash
+python3 -m pip install --user pipx
+python3 -m pipx ensurepath
+```
+
+After running this, you may need to restart your terminal for the `pipx` command to be available.
+
+### 2. Install Poetry
+
+Once `pipx` is installed, you can use it to install Poetry:
+
+```bash
+pipx install poetry
+```
+
+### 3. Set Up the Project
+
+Now, you can set up the project itself.
+
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/mxngjxa/lshrs.git
+    cd lshrs
+    ```
+
+2.  **macOS Prerequisite: Install `gfortran`**
+    If you are on macOS, you will need to install a Fortran compiler for the `scipy` dependency to build correctly. The easiest way is to use [Homebrew](https://brew.sh/):
+    ```bash
+    brew install gfortran
+    ```
+
+3.  **Create a local virtual environment.**
+    It's recommended to create a virtual environment in the project's root directory.
     ```bash
     python -m venv .venv
     ```
 
-2.  **Configure Poetry to use the local virtual environment.** This step ensures that Poetry installs dependencies into the `.venv` directory you just created.
-
+4.  **Configure Poetry to use the local virtual environment.**
+    This step ensures that Poetry installs dependencies into the `.venv` directory you just created.
     ```bash
     poetry config virtualenvs.in-project true
     ```
 
-3.  **Install dependencies.** Use Poetry to install the project's dependencies.
-
+5.  **Install dependencies.**
+    Finally, use Poetry to install the project's dependencies.
     ```bash
     poetry install
     ```
-
     This will install all the dependencies defined in the `pyproject.toml` file.
 
 ## Usage
