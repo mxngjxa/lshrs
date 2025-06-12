@@ -1,9 +1,40 @@
 # implemente shingling and one-hot encoding.
 
+from lshrs.utils.helpers import shingling
+
+from sklearn.preprocessing import OneHotEncoder as ohe
+
+class OneHotEncoder(ohe):
+    """
+    OneHotEncoder class that extends sklearn's OneHotEncoder
+    to handle shingling and one-hot encoding of documents.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def fit(self, documents):
+        # Shingle the documents first
+        shingles = shingling(documents, self.n_features_in_)
+        # Fit the OneHotEncoder on the shingles
+        return super().fit(shingles)
+
+    def transform(self, documents):
+        # Shingle the documents first
+        shingles = shingling(documents, self.n_features_in_)
+        # Transform the shingles using OneHotEncoder
+        return super().transform(shingles)
+    
+    def fit_transform(self, documents):
+        # Shingle the documents first
+        shingles = shingling(documents, self.n_features_in_)
+        # Fit and transform the shingles using OneHotEncoder
+        return super().fit_transform(shingles)
+
 """
-Input: documents (Two dimensions list. Dimension 1 is documents. Dimension 2 is words of a documents),
+Input: documents (2d dataframe. Dimension 1 is documents. Dimension 2 is words of a documents),
        size (shingling size)
-Output: result (Two dimensions list. Dimension 1 is documents. Dimension 2 is shingles of a documents)
+Output: result (2d dataframe. Dimension 1 is documents. Dimension 2 is shingles of a documents)
 
 Function Shingling (documents, size):
     Initialize result = empty list

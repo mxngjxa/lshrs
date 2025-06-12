@@ -1,5 +1,23 @@
 # main function to implement LSH
 
+import numpy as np
+import hashlib
+
+def locality_sensitive_hashing(signature_vector: np.array, hash_type: str = :"", r):
+    """
+    Function to implement Locality Sensitive Hashing (LSH) for signatures.
+    
+    Input:
+        - signature: A list of binary or hyperplane encoded signatures.
+        - r: The number of rows in each band.
+        - signature_type: Type of encoding used (e.g., OneHotEncoding or HyperplaneEncoding).
+        
+    Output:
+        - buckets: A dictionary where keys are bands and values are lists of document IDs that fall into those bands.
+    """
+
+    pass
+
 """
 Input: signature
        r (How many rows in a band)

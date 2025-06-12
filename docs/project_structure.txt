@@ -5,12 +5,12 @@
 │   ├── architecture.md
 │   ├── examples
 │   ├── index.md
+│   ├── project_structure.txt
 │   └── quickstart.md
 ├── examples
 │   ├── advanced_usage.py
 │   └── basic_usage.py
 ├── LICENSE
-├── project_structure.txt
 ├── pyproject.toml
 ├── README.md
 ├── src
@@ -19,6 +19,7 @@
 │       ├── core
 │       │   ├── __init__.py
 │       │   ├── config.py
+│       │   ├── dataloader.py
 │       │   ├── exceptions.py
 │       │   ├── interfaces.py
 │       │   └── main.py
@@ -35,19 +36,16 @@
 │       │   └── minhash.py
 │       ├── preprocessing
 │       │   ├── __init__.py
-│       │   ├── main.py
+│       │   ├── lemmatize.py
 │       │   ├── shingling.py
-│       │   └── tokenization.py
-│       ├── recommendation
-│       │   ├── __init__.py
-│       │   ├── recommender.py
-│       │   └── similarity.py
+│       │   ├── stopwords.py
+│       │   └── website.py
 │       └── utils
 │           ├── __init__.py
-│           ├── dataloader.py
+│           ├── br.py
 │           ├── helpers.py
-│           ├── optimal_br.py
-│           └── save.py
+│           ├── save.py
+│           └── similarity.py
 └── tests
     ├── __init__.py
     ├── fixtures
@@ -59,4 +57,4 @@
         ├── test_preprocessing.py
         └── test_recommendation.py
 
-17 directories, 43 files
+16 directories, 42 files

@@ -73,3 +73,6 @@ flowchart TD
 
     A@{ shape: docs}
 ```
+
+References:
+Scikit-learn for tf-idf

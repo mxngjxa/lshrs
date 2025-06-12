@@ -111,7 +111,8 @@ class RecommendationPipeline:
         query: Any, 
         top_k: int = None,
         similarity_threshold: float = None
-    ) -> List[Tuple[Any, float]]:
+        ) -> List[Tuple[Any, float]]:
+        
         """Generate recommendations for a query."""
         self._check_fitted()
         

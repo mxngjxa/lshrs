@@ -6,11 +6,14 @@
 # ...etc, can also include their own models
 
 """
-Input: documents (The format depends on models)
-Output: result (A matrix with encoding numbers. Different rows are different documents)
+Input: 
+    - one document
+    - document dataframe with index
+Output: returns
+    - tuple with document and the embedding representation
+    - document dataframe with index but additional column for embedding representation
+Used in: lshrs.encoding.main
 
-Function Embedding (documents):
-    result = Use models to transform documents to vectors
-    
-    Return result
+Logic: using a pretrianed model and intergrating with the HuggingFace API
+could potentially use the user's own embedding model
 """
