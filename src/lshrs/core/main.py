@@ -3,18 +3,25 @@ Main orchestration module for the LSH recommendation system.
 """
 
 import logging
-from typing import Any, List, Tuple, Optional, Dict, Union
 import numpy as np
 from scipy.sparse import csr_matrix
+from typing import Any, List, Tuple, Optional, Dict, Union
 
-from .config import RecommenderConfig
-from .interfaces import BaseEncoder, BaseHasher, BaseSimilarity, BaseRecommender
-from .exceptions import (
+from lshrs.core.config import RecommenderConfig
+from lshrs.core.interfaces import (
+    BaseEncoder, 
+    BaseHasher, 
+    BaseSimilarity, 
+    BaseRecommender
+    )
+from lshrs.core.exceptions import (
     RecommenderError, 
     ModelNotTrainedError, 
     InvalidInputError,
     RecommendationError
-)
+    )
+
+from lshrs.utils import br
 
 
 class RecommendationPipeline:
