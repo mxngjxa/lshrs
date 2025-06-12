@@ -2,7 +2,7 @@
 
 [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python Version](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
-[![PyPI version](https://img.shields.io/pypi/v/locality-sensitive-hashing-recommendation-system.svg)](https://pypi.org/project/locality-sensitive-hashing-recommendation-system/)
+[![PyPI version](https://img.shields.io/pypi/v/lshrs.svg)](https://pypi.org/project/lshrs/)
 [![Build Status](https://github.com/mxngjxa/lshrs/actions/workflows/lint.yml/badge.svg)](https://github.com/mxngjxa/lshrs/actions/workflows/lint.yml)
 [![Deployment](https://img.shields.io/badge/deployment-inactive-lightgrey.svg)](https://github.com/mxngjxa/lshrs/deployments)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
