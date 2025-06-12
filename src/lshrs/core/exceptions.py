@@ -52,3 +52,15 @@ class RecommendationError(RecommenderError):
 class PersistenceError(RecommenderError):
     """Raised when model saving/loading fails."""
     pass
+
+class DataLoaderError(RecommenderError):
+    """Raised when dataloader operations fail."""
+    pass
+
+class HashingError(RecommenderError):
+    """Raised when hashing operations fail."""
+    pass
+
+class SimilarityError(RecommenderError):
+    """Raised when similarity calculations fail."""
+    pass
