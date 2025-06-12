@@ -1,7 +1,7 @@
 # computes the simlirity between two sets of items
 # includes the following functions
 # cosine similarity
-# jaccard similiarity 
+# jaccard similiarity
 # euclidian distnace
 # manhattan distance
 

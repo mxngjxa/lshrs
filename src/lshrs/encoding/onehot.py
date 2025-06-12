@@ -1,8 +1,9 @@
 # implemente shingling and one-hot encoding.
 
+from sklearn.preprocessing import OneHotEncoder as ohe
+
 from lshrs.utils.helpers import shingling
 
-from sklearn.preprocessing import OneHotEncoder as ohe
 
 class OneHotEncoder(ohe):
     """
@@ -24,7 +25,7 @@ class OneHotEncoder(ohe):
         shingles = shingling(documents, self.n_features_in_)
         # Transform the shingles using OneHotEncoder
         return super().transform(shingles)
-    
+
     def fit_transform(self, documents):
         # Shingle the documents first
         shingles = shingling(documents, self.n_features_in_)

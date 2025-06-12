@@ -1,7 +1,8 @@
 # Convertes the vectorized output of the embeddings and TF-IDF to a binary vector using hyperplane cosine similarity
 
-import scipy.sparse
 import numpy as np
+import scipy.sparse
+
 
 def generate_hyperplane(plane_count: int, plane_dimensions: int) -> scipy.sparse.csr_matrix:
     """

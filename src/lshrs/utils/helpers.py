@@ -1,5 +1,5 @@
 # other helper functions to be defined later
 
-# Takes in: 
+# Takes in:
 
-# Returns: 
+# Returns:

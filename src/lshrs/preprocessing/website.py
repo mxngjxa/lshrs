@@ -1,7 +1,9 @@
-# function to specifically preprosess raw website data that still contains HTML tags, formatting issues, etc. 
+# function to specifically preprosess raw website data that still contains HTML tags, formatting issues, etc.
+
+from typing import List
 
 from bs4 import BeautifulSoup
-from typing import List
+
 
 def get_website_content(url: str) -> str:
     """
@@ -15,12 +17,12 @@ def get_website_content(url: str) -> str:
         html_content = response.read().decode('utf-8')
         return html_content
 
-    except Exception as e:
+    except Exception:
         # print(f"Error fetching content from {url}: {e}")
         return ""
 
 def process_website_content(
-    html_content: str, 
+    html_content: str,
     target_tags: List[str] = ["p", "h1", "h2", "h3", "li", "article", "section", "blockquote"]
     ) -> str:
 

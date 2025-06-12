@@ -11,7 +11,7 @@ def br(num_permutations: int) -> tuple[int, int]:
     b = int(np.sqrt(num_permutations))
     # r is then calculated as the total permutations divided by b
     r = num_permutations // b
-    
+
     return b, r
 
 

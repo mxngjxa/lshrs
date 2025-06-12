@@ -14,10 +14,10 @@ def remove_stopwords(text: str) -> str:
     pass
 
 def lemmatize_text(
-    text: str, 
-    remove_stopwords: bool = True, 
-    stemming: bool = True, 
-    lowercase: bool = True, 
+    text: str,
+    remove_stopwords: bool = True,
+    stemming: bool = True,
+    lowercase: bool = True,
     alphabetical: bool = True
     ) -> str:
 

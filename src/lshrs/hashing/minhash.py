@@ -3,6 +3,7 @@
 import numpy as np
 import pandas as pd
 
+
 def generate_permutations(num_features: int, num_hashes: int) -> np.array:
     """
     Generates a set of random permutations for MinHashing.
@@ -108,7 +109,7 @@ def index(permutations: int):
     one_hot = one_hot_encode()
     # Generate the matrix of random permutations of shingle indices
     perm_matrix = generate_permutation_matrix()
-    
+
     # Convert the sparse one-hot matrix to a dense NumPy array for efficient row-wise operations
     # This can be memory-intensive for very large datasets.
     one_hot_np = one_hot.toarray()
@@ -117,7 +118,7 @@ def index(permutations: int):
     for doc_idx in range(doc_count):
         # Find the indices of shingles present in the current document (where one_hot_np is 1)
         shingle_indices_in_doc = np.where(one_hot_np[doc_idx] == 1)[0]
-        
+
         # Iterate over each permutation (hash function)
         for perm_idx, perm_shingle_order in perm_matrix.iterrows():
             # For the current permutation, find the minimum permuted index of a shingle present in the document
