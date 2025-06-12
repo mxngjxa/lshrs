@@ -17,6 +17,7 @@ A Locality Sensitive Hashing (LSH) based recommendation system for efficient sim
 - [Project Structure](#project-structure)
 - [Installation](#installation)
 - [Usage](#usage)
+- [Development](#development)
 - [Architecture](#architecture)
 - [License](#license)
 - [Authors](#authors)
@@ -63,17 +64,27 @@ The project is organized as follows:
 
 ## Installation
 
-To install the required dependencies, run the following command:
+This project uses [Poetry](httpss://python-poetry.org/) for dependency management.
 
-```bash
-pip install -r requirements.txt
-```
+1.  **Create a virtual environment.** It's recommended to create a virtual environment in the project's root directory.
 
-The dependencies are:
-- `scipy`
-- `scikit-learn`
-- `numpy`
-- `nltk`
+    ```bash
+    python -m venv .venv
+    ```
+
+2.  **Configure Poetry to use the local virtual environment.** This step ensures that Poetry installs dependencies into the `.venv` directory you just created.
+
+    ```bash
+    poetry config virtualenvs.in-project true
+    ```
+
+3.  **Install dependencies.** Use Poetry to install the project's dependencies.
+
+    ```bash
+    poetry install
+    ```
+
+    This will install all the dependencies defined in the `pyproject.toml` file.
 
 ## Usage
 
@@ -81,6 +92,19 @@ You can find basic and advanced usage examples in the `examples` directory.
 
 - [`basic_usage.py`](examples/basic_usage.py:1)
 - [`advanced_usage.py`](examples/advanced_usage.py:1)
+
+## Development
+
+This project uses `ruff` for linting and formatting.
+
+-   **Linting:** To check for any style issues or errors, run the following command:
+    ```bash
+    poetry run ruff check src
+    ```
+-   **Formatting:** To automatically fix any issues that `ruff` finds, run this command:
+    ```bash
+    poetry run ruff check --fix src
+    ```
 
 ## Architecture
 
@@ -225,4 +249,4 @@ See the [`CHANGELOG.md`](CHANGELOG.md:1) file for a history of changes to the pr
 
 ## Contributing
 
-Contributions are welcome! Please see the [`.pre-commit-config.yaml`](.pre-commit-config.yaml:1) for linting and formatting guidelines.
+Contributions are welcome! Please see the [Development](#development) section for linting and formatting guidelines.
