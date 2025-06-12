@@ -2,13 +2,13 @@
 # uses the encoding methods from other files in this directory to pull in functions to compute embeddings
 
 """
-Input: 
+Input:
     - document in one of the following format
         - json
-        - list 
+        - list
         - single string of documents
 Output:
     - returns the embecdded version of their doucment encoded to a vector format
-    
+
 Used in: lshrs/main
 """

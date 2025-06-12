@@ -10,7 +10,7 @@ def generate_permutations(num_features: int, num_hashes: int) -> np.array:
 
     :param num_features: The number of features (columns) in the binary matrix.
     :param num_hashes: The number of hash functions to generate.
-    
+
     :return: A 2D numpy array where each row is a permutation of feature indices.
     """
     return np.array([np.random.permutation(num_features) for _ in range(num_hashes)])
@@ -100,7 +100,7 @@ def index(permutations: int):
 
     #set some variables for easy iteration
     doc_count = len(post_shingle)
-    shingle_count = len(shingle_array)
+    len(shingle_array)
 
     # Initialize an empty signature matrix with permutations as rows and documents as columns
     signature_matrix = pd.DataFrame(index=range(permutations), columns=range(doc_count))

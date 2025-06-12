@@ -6,7 +6,7 @@
 # ...etc, can also include their own models
 
 """
-Input: 
+Input:
     - one document
     - document dataframe with index
 Output: returns

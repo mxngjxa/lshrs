@@ -42,7 +42,7 @@ class LSHSystemSaver:
     ) -> None:
         """
         Save complete LSH recommendation system to compressed archive.
-        
+
         Args:
             filepath: Path for the output archive (.tar.gz)
             recommender_instance: Main recommender object
@@ -278,11 +278,11 @@ class LSHSystemLoader:
     ) -> Dict[str, Any]:
         """
         Load complete LSH recommendation system from archive.
-        
+
         Args:
             filepath: Path to the saved archive
             recreate_components: Whether to recreate component instances
-            
+
         Returns:
             Dictionary containing all loaded components
         """
@@ -564,7 +564,7 @@ def save_lsh_system(
 ) -> None:
     """
     Convenience function to save LSH system.
-    
+
     Args:
         filepath: Output archive path (.tar.gz)
         recommender_instance: Main recommender object
@@ -578,11 +578,11 @@ def save_lsh_system(
 def load_lsh_system(filepath: str, recreate_components: bool = True) -> Dict[str, Any]:
     """
     Convenience function to load LSH system.
-    
+
     Args:
         filepath: Path to saved archive
         recreate_components: Whether to recreate component instances
-        
+
     Returns:
         Dictionary containing loaded system components
     """

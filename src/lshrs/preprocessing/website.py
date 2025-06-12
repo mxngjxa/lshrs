@@ -31,7 +31,7 @@ def process_website_content(
 
     :param html_content: Raw HTML content of the webpage.
     :param target_tags: List of HTML tag names to extract text from (e.g., ["p", "h1"]).
-    
+
     :return: A cleaned string containing only text from the specified tags.
     """
     soup = BeautifulSoup(html_content, features='html.parser')

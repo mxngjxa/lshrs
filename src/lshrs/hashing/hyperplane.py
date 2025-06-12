@@ -7,12 +7,12 @@ import scipy.sparse
 def generate_hyperplane(plane_count: int, plane_dimensions: int) -> scipy.sparse.csr_matrix:
     """
     Generates a random hyperplane with the specified number of planes.
-    
-    Input: 
+
+    Input:
         plane_count (int): The number of hyperplanes to generate.
         plane_dimensions (int): The number of dimensions for each hyperplane.
-    
-    Output: 
+
+    Output:
         scipy.sparse.csr_matrix: A sparse matrix representing the hyperplanes.
     """
     # Generate random vectors for each plane

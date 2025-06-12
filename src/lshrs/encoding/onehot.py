@@ -49,7 +49,7 @@ Function Shingling (documents, size):
         Append shingle_set to result
 
     return result
-    
+
 
 Input: shingles (A list comming from Shingling function)
 Output: result (A matrix containing binary numbers)
@@ -58,7 +58,7 @@ Function OneHotEncoding (shingles):
     Initialize entire_set = empty set
     For each set in shingles:
         Add set's elements into entire_set
-    
+
     Initialize result = empty list
     For each set in shingles:
         Initialize vector = empty list

@@ -22,7 +22,7 @@ def lemmatize_text(
     ) -> str:
 
     """
-    Function to lemmatize a given text and return a cleaned version of it. 
+    Function to lemmatize a given text and return a cleaned version of it.
     This function can also remove stopwords during lemmatization.
 
     :param text: The input text to be lemmatized.
