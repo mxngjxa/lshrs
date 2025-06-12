@@ -21,5 +21,12 @@ dependencies = [
     "nltk",
 ]
 
+[project.optional-dependencies]
+dev = ["ruff"]
+
 [project.urls]
 Homepage = "https://github.com/mxngjxa/lshrs"
+
+[tool.ruff]
+line-length = 88
+select = ["E", "F", "W", "I"]
