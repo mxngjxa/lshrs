@@ -1,0 +1,19 @@
+[project]
+name = "Locality Sensitive Hashing Recommendation System"
+version = "0.0.1"
+authors = [
+  { name="Y. Zhao", email="yimingzhao936@gmail.com" },
+  { name="M. Guan", email="mingjia.guan@outlook.com" },
+]
+description = "A Locality Sensitive Hashing based recommendation system for efficient similarity search."
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+license = "MIT"
+license-files = ["LICEN[CS]E*"]
+
+[project.urls]
+Homepage = "https://github.com/mxngjxa/lshrs"
