@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "locality-sensitive-hashing-recommendation-system"
+name = "lshrs"
 version = "0.1.0"
 description = "A Locality Sensitive Hashing based recommendation system for efficient similarity search."
 authors = ["Y. Zhao <yimingzhao936@gmail.com>", "M. Guan <mingjia.guan@outlook.com>"]
@@ -19,6 +19,8 @@ scipy = "*"
 scikit-learn = "*"
 numpy = "*"
 nltk = "*"
+twine = "*"
+build = "*"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "*"
