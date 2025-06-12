@@ -11,10 +11,11 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
 ]
+packages = [{include = "lshrs", from = "src"}]
 
 [tool.poetry.dependencies]
-python = ">=3.9"
-scipy = "*"
+python = ">3.11"
+scipy = "1.15.0"
 scikit-learn = "*"
 numpy = "*"
 nltk = "*"
