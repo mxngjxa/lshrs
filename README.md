@@ -93,7 +93,7 @@ config:
 ---
 flowchart TD
 
-    A["Text Documents"]
+    A[("Text Documents")]
     A --> B["**DataLoader**
     - Indexing
     - Full Representation
