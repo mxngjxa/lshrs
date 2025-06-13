@@ -124,8 +124,8 @@ Now, you can set up the project itself.
 
 You can find basic and advanced usage examples in the `examples` directory.
 
-- [`basic_usage.py`](examples/basic_usage.py:1)
-- [`advanced_usage.py`](examples/advanced_usage.py:1)
+- [`basic_usage.py`](examples/basic_usage.py)
+- [`advanced_usage.py`](examples/advanced_usage.py)
 
 ## Development
 
@@ -151,7 +151,8 @@ config:
 ---
 flowchart TD
 
-    A[("Text Documents")]
+    A@{ shape: docs, label: "Text documents" }
+
     A --> B["**DataLoader**
     - Indexing
     - Full Representation
@@ -163,12 +164,12 @@ flowchart TD
     subgraph Preprocessing
         direction LR
         C --> D["Tokenize"]
-        D --> E["Lemmatize"]
-        E --> F["Remove Stopwords"]
-        F --> G["Shingling"]
+        C --> E["Lemmatize"]
+        C --> F["Remove Stopwords"]
+        C --> G["Shingling"]
     end
 
-    C --> H["Vectorization"]
+    D & E & F & G --> H["Vectorization"]
 
     subgraph Vectorization
         direction LR
@@ -185,16 +186,20 @@ flowchart TD
         direction LR
         L --> N["Hyperplane Hashing"]
         M --> O["MinHash"]
+        N & O --> P["LSH"]
     end
-
-    N --> P["LSH"]
-    O --> P
 
     P --> Q["Candidate Pairs"]
     Q --> R["Similarity Calculation"]
     R --> S["Top-N Recommendations"]
 
     S --> T["Output"]
+
+    subgraph Helper Functions
+        U["Optimal BR"]
+
+        U --> P
+    end
 ```
 
 ## Core Orchestration of the `lshrs` Library
