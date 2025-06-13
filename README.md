@@ -144,62 +144,101 @@ This project uses `ruff` for linting and formatting.
 
 The following diagram illustrates the architecture of the LSH recommendation system:
 
+
 ```mermaid
 ---
 config:
   layout: dagre
 ---
 flowchart TD
+    subgraph "Input Sources"
+        A[("Text Documents")]
+        B[("Website URLs")]
+    end
 
-    A@{ shape: docs, label: "Text documents" }
+    subgraph "Configuration"
+        C[("RecommenderConfig")]
+    end
 
-    A --> B["**DataLoader**
-    - Indexing
-    - Full Representation
-    - Signature
-    - Embeddings"]
+    subgraph "Data Loading & Preprocessing"
+        D{{"LSHDataLoader"}}
+        E{{"TextPreprocessor"}}
+        F[("get_website_content")]
 
-    B --> C["Preprocessing"]
+        A --> D
+        B --> F --> D
 
-    subgraph Preprocessing
+        D -- Raw Text --> E
+
+        subgraph "Preprocessing Steps"
+            direction LR
+            E1["Lemmatize & Stem"]
+            E2["Remove Stopwords"]
+            E3["Shingling"]
+        end
+
+        E --> E1 --> E2 --> E3
+    end
+
+    subgraph "Encoding (Vectorization)"
         direction LR
-        C --> D["Tokenize"]
-        C --> E["Lemmatize"]
-        C --> F["Remove Stopwords"]
-        C --> G["Shingling"]
+        G{{"Encoder"}}
+        H1["TF-IDF"]
+        H2["Embeddings"]
+        H3["One-Hot"]
+
+        E3 -- Preprocessed Text --> G
+        G --> H1
+        G --> H2
+        G --> H3
     end
 
-    D & E & F & G --> H["Vectorization"]
+    subgraph "Hashing"
+        direction TB
+        I{{"Hasher"}}
+        J1["Hyperplane LSH"]
+        J2["MinHash"]
 
-    subgraph Vectorization
-        direction LR
-        H --> I["TF-IDF"]
-        H --> J["One-Hot Encoding"]
-        H --> K["Embeddings"]
+        H1 -- Vector --> I
+        H2 -- Vector --> I
+        H3 -- Vector --> I
+
+        I --> J1
+        I --> J2
     end
 
-    I --> L["Cosine Similarity"]
-    J --> M["Jaccard Similarity"]
-    K --> L
+    subgraph "LSH Core"
+        K{{"LSH"}}
+        L[("Optimal BR")]
 
-    subgraph Hashing
-        direction LR
-        L --> N["Hyperplane Hashing"]
-        M --> O["MinHash"]
-        N & O --> P["LSH"]
+        J1 -- Signature --> K
+        J2 -- Signature --> K
+        L --> K
     end
 
-    P --> Q["Candidate Pairs"]
-    Q --> R["Similarity Calculation"]
-    R --> S["Top-N Recommendations"]
+    subgraph "Recommendation"
+        M{{"Similarity Calculator"}}
+        N{{"Recommender"}}
 
-    S --> T["Output"]
-
-    subgraph Helper Functions
-        U["Optimal BR"]
-
-        U --> P
+        K -- Candidate Pairs --> M
+        M -- Similarity Scores --> N
+        N -- Top-K Recommendations --> O[("Output")]
     end
+
+    subgraph "Persistence"
+        P{{"LSHSystemSaver/Loader"}}
+        Q[("Archive File (.tar.gz)")]
+
+        N -- Save --> P
+        P -- Load --> N
+        P <--> Q
+    end
+
+    C --> D
+    C --> G
+    C --> I
+    C --> L
+    C --> N
 ```
 
 ## Core Orchestration of the `lshrs` Library
