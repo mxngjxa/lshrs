@@ -1,9 +1,13 @@
+# Architecture Diagram for LSH Recommender System
+
+## LSH System & Recommendation Engine
+
+
 ```mermaid
 ---
 config:
   layout: dagre
 ---
-
 graph TD
     subgraph "System Orchestration"
         direction LR
@@ -11,6 +15,52 @@ graph TD
         C(RecommenderConfig) -- Configures --> A
     end
 
+    subgraph "LSH Processing"
+        direction TB
+        M[LSH Signatures] --> N[LSH Buckets]
+        B -- Finds Candidates --> N
+    end
+
+    subgraph "Candidate Search & Recommendation"
+        direction TB
+        N --> O{BaseSimilarity}
+        B -- Computes Similarity --> O
+        O -- Similarity Scores --> B
+        B -- Top-K --> P[("Recommended Items")]
+    end
+
+    subgraph "System Persistence"
+        direction TB
+        Q{LSHSystemSaver/Loader}
+        Q <-- Save/Load --> A
+        Q -- Creates/Loads --> R[("lsh_system.tar.gz")]
+        subgraph "Archive Contents"
+            direction LR
+            R1[config.json]
+            R2[encoder.joblib]
+            R3[hasher.joblib]
+            R4[data.pkl]
+            R5[signatures.npz]
+            R6[manifest.json]
+        end
+        R --> R1 & R2 & R3 & R4 & R5 & R6
+    end
+
+    A -- Contains --> C
+    C -- Configures Processing --> M
+
+    style M fill:#e1f5fe
+    style P fill:#c8e6c9
+```
+
+## Data Processing Pipeline
+
+```mermaid
+---
+config:
+  layout: dagre
+---
+graph TD
     subgraph "Data Input & Loading"
         direction TB
         D[("Documents/Text")] --> E{LSHDataLoader}
@@ -36,7 +86,6 @@ graph TD
         direction TB
         K{BaseEncoder}
         J3 -- Preprocessed Text --> K
-        C -- Selects --> K
         subgraph "Encoding Methods"
             direction LR
             K1[TFIDFEncoder]
@@ -52,7 +101,6 @@ graph TD
         K1 -- Vector --> L
         K2 -- Vector --> L
         K3 -- Vector --> L
-        C -- Selects --> L
         subgraph "Hashing Methods"
             direction LR
             L1[HyperplaneLSH]
@@ -60,40 +108,8 @@ graph TD
         end
         L --> L1 & L2
         L3[OptimalBR] -- Calculates b, r for --> L
+        L -- Signatures --> M[LSH Signatures]
     end
 
-    subgraph "Candidate Search & Recommendation"
-        direction TB
-        M[LSH Buckets]
-        L -- Signatures --> M
-        B -- Finds Candidates --> M
-        N{BaseSimilarity}
-        B -- Computes Similarity --> N
-        N -- Similarity Scores --> B
-        B -- Top-K --> O[("Recommended Items")]
-    end
-
-    subgraph "System Persistence"
-        direction TB
-        P{LSHSystemSaver/Loader}
-        A -- Save/Load --> P
-        P -- Creates/Loads --> Q[("lsh_system.tar.gz")]
-        subgraph "Archive Contents"
-            direction LR
-            Q1[config.json]
-            Q2[encoder.joblib]
-            Q3[hasher.joblib]
-            Q4[data.pkl]
-            Q5[signatures.npz]
-            Q6[manifest.json]
-        end
-        Q --> Q1 & Q2 & Q3 & Q4 & Q5 & Q6
-    end
-
-    A -- Contains --> C
-    B -- Uses --> E
-    B -- Uses --> J
-    B -- Uses --> K
-    B -- Uses --> L
-    B -- Uses --> N
+    style M fill:#e1f5fe
 ```
