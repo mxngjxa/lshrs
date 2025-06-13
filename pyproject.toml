@@ -27,7 +27,10 @@ ruff = "*"
 
 [tool.ruff]
 line-length = 88
-select = ["E", "F", "W", "I"]
+lint.select = [
+  "E", "F", "W", "I",  # Basic style and import sorting
+]
+fix = true         # Enable autofix (if used with `ruff check --fix`)
 
 [build-system]
 requires = ["poetry-core"]

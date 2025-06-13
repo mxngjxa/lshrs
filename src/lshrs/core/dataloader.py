@@ -171,14 +171,18 @@ class LSHDataLoader:
         from lshrc.utils.save import load_dataloader_state
         return load_dataloader_state(filepath)
 
-    def get_memory_usage(self):
+    def get_memory_usage(self) -> dict:
         """Get memory usage statistics"""
         import sys
         return {
             'indices_size': sys.getsizeof(self._indices),
             'mapping_size': sys.getsizeof(self._id_mapping),
             'texts_size': sys.getsizeof(self._raw_texts),
-            'vectors_size': self._vectors.data.nbytes if hasattr(self._vectors, 'data') else sys.getsizeof(self._vectors),
+            'vectors_size': (
+                self._vectors.data.nbytes
+                if hasattr(self._vectors, 'data')
+                else sys.getsizeof(self._vectors)
+            ),
             'metadata_size': sys.getsizeof(self._metadata),
             'total_items': len(self._indices)
         }

@@ -35,7 +35,9 @@ class LSHConfig(BaseModel):
         if 'num_bands' in values and 'rows_per_band' in values:
             total_hashes = values['num_bands'] * values['rows_per_band']
             if total_hashes > 1000:
-                raise ValueError("Total hash functions (bands * rows) should not exceed 1000")
+                raise ValueError(
+                    "Total hash functions (bands * rows) should not exceed 1000"
+                )
         return v
 
 

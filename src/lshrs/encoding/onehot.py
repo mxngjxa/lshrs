@@ -33,9 +33,8 @@ class OneHotEncoder(ohe):
         return super().fit_transform(shingles)
 
 """
-Input: documents (2d dataframe. Dimension 1 is documents. Dimension 2 is words of a documents),
-       size (shingling size)
-Output: result (2d dataframe. Dimension 1 is documents. Dimension 2 is shingles of a documents)
+Input: documents (2D dataframe: documents x words), size (shingling size)
+Output: result (2D dataframe: documents x shingles)
 
 Function Shingling (documents, size):
     Initialize result = empty list

@@ -99,7 +99,9 @@ class RecommendationPipeline:
     def _check_fitted(self):
         """Check if the pipeline is fitted."""
         if not self.is_fitted:
-            raise ModelNotTrainedError("Pipeline must be fitted before making recommendations")
+            raise ModelNotTrainedError(
+                "Pipeline must be fitted before making recommendations"
+            )
 
     def recommend(
         self,
@@ -157,7 +159,9 @@ class LSHRecommender(BaseRecommender):
         self.pipeline = RecommendationPipeline(self.config)
         self.logger = logging.getLogger(__name__)
 
-    def fit(self, data: Any, item_ids: Optional[List] = None, **kwargs) -> "LSHRecommender":
+    def fit(
+        self, data: Any, item_ids: Optional[List] = None, **kwargs
+    ) -> "LSHRecommender":
         """Fit the recommender to the data."""
         # Initialize components based on configuration
         from ..encoding import get_encoder

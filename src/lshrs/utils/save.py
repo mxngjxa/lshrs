@@ -55,7 +55,9 @@ class LSHSystemSaver:
             temp_dir.mkdir(exist_ok=True)
 
             # Save all components
-            manifest = self._create_manifest(recommender_instance, dataloader_instance, metadata)
+            manifest = self._create_manifest(
+                recommender_instance, dataloader_instance, metadata
+            )
 
             # Save core components
             self._save_config(temp_dir, recommender_instance.config)
@@ -108,15 +110,29 @@ class LSHSystemSaver:
                 "hash_buckets": True
             },
             "config_info": {
-                "encoding_type": recommender_instance.config.encoding_config.encoding_type,
+                "encoding_type": (
+                    recommender_instance.config.encoding_config.encoding_type
+                ),
                 "lsh_type": recommender_instance.config.lsh_config.hash_type,
                 "num_bands": recommender_instance.config.lsh_config.num_bands,
                 "rows_per_band": recommender_instance.config.lsh_config.rows_per_band
             },
             "data_info": {
-                "num_items": len(recommender_instance.pipeline.item_index) if recommender_instance.pipeline.item_index else 0,
-                "encoding_shape": recommender_instance.pipeline.encoded_data.shape if hasattr(recommender_instance.pipeline.encoded_data, 'shape') else None,
-                "signature_shape": recommender_instance.pipeline.signatures.shape if hasattr(recommender_instance.pipeline.signatures, 'shape') else None
+                "num_items": (
+                    len(recommender_instance.pipeline.item_index)
+                    if recommender_instance.pipeline.item_index
+                    else 0
+                ),
+                "encoding_shape": (
+                    recommender_instance.pipeline.encoded_data.shape
+                    if hasattr(recommender_instance.pipeline.encoded_data, "shape")
+                    else None
+                ),
+                "signature_shape": (
+                    recommender_instance.pipeline.signatures.shape
+                    if hasattr(recommender_instance.pipeline.signatures, "shape")
+                    else None
+                ),
             },
             "metadata": metadata or {}
         }
@@ -158,7 +174,9 @@ class LSHSystemSaver:
                 joblib.dump(pipeline.similarity, similarity_path)
             else:
                 with open(similarity_path.with_suffix('.pkl'), 'wb') as f:
-                    pickle.dump(pipeline.similarity, f, protocol=pickle.HIGHEST_PROTOCOL)
+                    pickle.dump(
+                        pipeline.similarity, f, protocol=pickle.HIGHEST_PROTOCOL
+                    )
 
     def _save_dataloader(self, temp_dir: Path, dataloader: Any) -> None:
         """Save dataloader state efficiently.""" [7]
@@ -239,13 +257,22 @@ class LSHSystemSaver:
         if hasattr(pipeline.hasher, 'buckets') and pipeline.hasher.buckets:
             buckets_path = lsh_dir / "hash_buckets.pkl"
             with open(buckets_path, 'wb') as f:
-                pickle.dump(pipeline.hasher.buckets, f, protocol=pickle.HIGHEST_PROTOCOL)
+                pickle.dump(
+                    pipeline.hasher.buckets, f, protocol=pickle.HIGHEST_PROTOCOL
+                )
 
         # Save reverse bucket mapping if available
-        if hasattr(pipeline.hasher, 'reverse_buckets') and pipeline.hasher.reverse_buckets:
+        if (
+            hasattr(pipeline.hasher, "reverse_buckets")
+            and pipeline.hasher.reverse_buckets
+        ):
             reverse_buckets_path = lsh_dir / "reverse_buckets.pkl"
             with open(reverse_buckets_path, 'wb') as f:
-                pickle.dump(pipeline.hasher.reverse_buckets, f, protocol=pickle.HIGHEST_PROTOCOL)
+                pickle.dump(
+                    pipeline.hasher.reverse_buckets,
+                    f,
+                    protocol=pickle.HIGHEST_PROTOCOL,
+                )
 
     def _save_manifest(self, temp_dir: Path, manifest: Dict[str, Any]) -> None:
         """Save system manifest."""
@@ -255,7 +282,9 @@ class LSHSystemSaver:
 
     def _create_archive(self, filepath: str, temp_dir: Path) -> None:
         """Create compressed tar archive.""" [13]
-        with tarfile.open(filepath, "w:gz", compresslevel=self.compression_level) as tar:
+        with tarfile.open(
+            filepath, "w:gz", compresslevel=self.compression_level
+        ) as tar:
             tar.add(temp_dir, arcname="lsh_system")
 
     def _cleanup_temp_dir(self, temp_dir: Path) -> None:
@@ -355,7 +384,9 @@ class LSHSystemLoader:
 
         # Validate manifest version
         if manifest.get("version") != "1.0":
-            raise PersistenceError(f"Unsupported manifest version: {manifest.get('version')}")
+            raise PersistenceError(
+                f"Unsupported manifest version: {manifest.get('version')}"
+            )
 
         return manifest
 
@@ -427,7 +458,7 @@ class LSHSystemLoader:
             try:
                 # Try loading as sparse matrix first
                 data_components["encoded_data"] = load_npz(encoded_path)
-            except:
+            except Exception:
                 # Fall back to dense array
                 loaded = np.load(encoded_path)
                 data_components["encoded_data"] = loaded["encoded_data"]
@@ -502,7 +533,7 @@ class LSHSystemLoader:
         if vectors_path.exists():
             try:
                 dataloader._vectors = load_npz(vectors_path)
-            except:
+            except Exception:
                 loaded = np.load(vectors_path)
                 dataloader._vectors = loaded["vectors"]
 
@@ -537,7 +568,9 @@ class LSHSystemLoader:
         if "buckets" in lsh_structures:
             recommender.pipeline.hasher.buckets = lsh_structures["buckets"]
         if "reverse_buckets" in lsh_structures:
-            recommender.pipeline.hasher.reverse_buckets = lsh_structures["reverse_buckets"]
+            recommender.pipeline.hasher.reverse_buckets = lsh_structures[
+                "reverse_buckets"
+            ]
 
         # Mark as fitted
         recommender.pipeline.is_fitted = True
@@ -573,7 +606,9 @@ def save_lsh_system(
         compression_level: Compression level (1-9)
     """
     saver = LSHSystemSaver(compression_level=compression_level)
-    saver.save_complete_system(filepath, recommender_instance, dataloader_instance, metadata)
+    saver.save_complete_system(
+        filepath, recommender_instance, dataloader_instance, metadata
+    )
 
 def load_lsh_system(filepath: str, recreate_components: bool = True) -> Dict[str, Any]:
     """

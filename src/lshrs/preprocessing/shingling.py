@@ -12,7 +12,8 @@ def shingling(documents: list, size: int = 1) -> list:
     :param documents: List of documents, where each document is a preprocessed string.
     :param size: Size of each shingle. Default is 1 for tokenization.
 
-    :return: List of sets, where each set contains shingles of the corresponding document.
+    :return: List of sets, where each set contains shingles of the
+      corresponding document.
     """
 
     pass

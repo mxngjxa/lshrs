@@ -47,7 +47,7 @@ Function TF (doc):
     Return result
 
 
-Input: documents (Two dimensions list. Dimension 1 is documents. Dimension 2 is words of a documents)
+Input: documents (2D list: documents x words)
 Output: result (A dictionary. The IDF of each word)
 
 Function IDF (documents):
