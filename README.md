@@ -328,3 +328,13 @@ See the [`CHANGELOG.md`](CHANGELOG.md:1) file for a history of changes to the pr
 ## Contributing
 
 Contributions are welcome! Please see the [Development](#development) section for linting and formatting guidelines.
+
+## Star History
+
+<a href="https://www.star-history.com/#mxngjxa/lshrs&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=mxngjxa/lshrs&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=mxngjxa/lshrs&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=mxngjxa/lshrs&type=Date" />
+ </picture>
+</a>
