@@ -5,17 +5,19 @@
 </div>
 
 
-[![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python Version](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![PyPI version](https://img.shields.io/pypi/v/lshrs.svg)](https://pypi.org/project/lshrs/)
-[![Build Status](https://github.com/mxngjxa/lshrs/actions/workflows/lint.yml/badge.svg)](https://github.com/mxngjxa/lshrs/actions/workflows/lint.yml)
 [![Deployment](https://img.shields.io/badge/deployment-inactive-lightgrey.svg)](https://github.com/mxngjxa/lshrs/deployments)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Build Status](https://github.com/mxngjxa/lshrs/actions/workflows/lint.yml/badge.svg)](https://github.com/mxngjxa/lshrs/actions/workflows/lint.yml)
 [![Downloads](https://img.shields.io/pypi/dm/lshrs.svg)](https://pypi.org/project/lshrs/)
-[![Contributors](https://img.shields.io/github/contributors/mxngjxa/lshrs.svg)](https://GitHub.com/mxngjxa/lshrs/graphs/contributors/)
-[![Commit Activity](https://img.shields.io/github/commit-activity/m/mxngjxa/lshrs.svg)](https://GitHub.com/mxngjxa/lshrs/graphs/commit-activity)
 
-A Locality Sensitive Hashing (LSH) based recommendation system for efficient similarity search in Python.
+A Locality Sensitive Hashing (LSH) based recommendation system for efficient similarity search in Python, powered by [JAX](https://github.com/jax-ml/jax).
+
+[![Commit Activity](https://img.shields.io/github/commit-activity/m/mxngjxa/lshrs.svg)](https://GitHub.com/mxngjxa/lshrs/graphs/commit-activity)
+[![Contributors](https://img.shields.io/github/contributors/mxngjxa/lshrs.svg)](https://GitHub.com/mxngjxa/lshrs/graphs/contributors/)
+[![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+
 
 ## Table of Contents
 
