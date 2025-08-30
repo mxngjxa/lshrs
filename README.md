@@ -10,6 +10,11 @@
 [![Contributors](https://img.shields.io/github/contributors/mxngjxa/lshrs.svg)](https://GitHub.com/mxngjxa/lshrs/graphs/contributors/)
 [![Commit Activity](https://img.shields.io/github/commit-activity/m/mxngjxa/lshrs.svg)](https://GitHub.com/mxngjxa/lshrs/graphs/commit-activity)
 
+<div align="center">
+    <img src="docs/lshrs-logo.svg" alt="logo"></img>
+</div>
+
+
 A Locality Sensitive Hashing (LSH) based recommendation system for efficient similarity search in Python.
 
 ## Table of Contents
