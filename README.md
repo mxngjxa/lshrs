@@ -1,5 +1,10 @@
 # Locality Sensitive Hashing Recommendation System
 
+<div align="center">
+    <img src="docs/lshrs-logo.svg" alt="logo"></img>
+</div>
+
+
 [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python Version](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![PyPI version](https://img.shields.io/pypi/v/lshrs.svg)](https://pypi.org/project/lshrs/)
@@ -9,11 +14,6 @@
 [![Downloads](https://img.shields.io/pypi/dm/lshrs.svg)](https://pypi.org/project/lshrs/)
 [![Contributors](https://img.shields.io/github/contributors/mxngjxa/lshrs.svg)](https://GitHub.com/mxngjxa/lshrs/graphs/contributors/)
 [![Commit Activity](https://img.shields.io/github/commit-activity/m/mxngjxa/lshrs.svg)](https://GitHub.com/mxngjxa/lshrs/graphs/commit-activity)
-
-<div align="center">
-    <img src="docs/lshrs-logo.svg" alt="logo"></img>
-</div>
-
 
 A Locality Sensitive Hashing (LSH) based recommendation system for efficient similarity search in Python.
 
@@ -29,43 +29,6 @@ A Locality Sensitive Hashing (LSH) based recommendation system for efficient sim
 - [Changelog](#changelog)
 - [Contributing](#contributing)
 
-## Project Structure
-
-The project is organized as follows:
-
-```
-.
-├── CHANGELOG.md
-├── docs
-│   ├── api
-│   ├── architecture.md
-│   ├── examples
-│   ├── index.md
-│   ├── project_structure.txt
-│   └── quickstart.md
-├── examples
-│   ├── advanced_usage.py
-│   └── basic_usage.py
-├── LICENSE
-├── pyproject.toml
-├── README.md
-├── src
-│   └── lshrs
-│       ├── core
-│       ├── encoding
-│       ├── hashing
-│       ├── preprocessing
-│       └── utils
-└── tests
-    ├── fixtures
-    ├── integration
-    └── unit
-```
-
-- **docs**: Contains project documentation.
-- **examples**: Contains example scripts for using the library.
-- **src/lshrs**: Contains the source code for the `lshrs` library.
-- **tests**: Contains unit and integration tests.
 
 ## Installation
 
