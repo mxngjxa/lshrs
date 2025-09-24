@@ -288,7 +288,6 @@ This project is licensed under the MIT License. See the [`LICENSE`](LICENSE:1) f
 
 ## Authors
 
-- Y. Zhao ([yimingzhao936@gmail.com](mailto:yimingzhao936@gmail.com))
 - M. Guan ([mingjia.guan@outlook.com](mailto:mingjia.guan@outlook.com))
 
 ## Changelog
