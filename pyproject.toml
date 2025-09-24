@@ -2,7 +2,7 @@
 name = "lshrs"
 version = "0.1.0"
 description = "A Locality Sensitive Hashing based recommendation system for efficient similarity search."
-authors = ["Y. Zhao <yimingzhao936@gmail.com>", "M. Guan <mingjia.guan@outlook.com>"]
+authors = ["M. Guan <mingjia.guan@outlook.com>"]
 readme = "README.md"
 license = "MIT"
 homepage = "https://github.com/mxngjxa/lshrs"
