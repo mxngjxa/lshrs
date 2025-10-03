@@ -1,29 +1,42 @@
-[tool.poetry]
+[project]
 name = "lshrs"
-version = "0.1.0"
+version = "0.0.0a1"
 description = "A Locality Sensitive Hashing based recommendation system for efficient similarity search."
-authors = ["M. Guan <mingjia.guan@outlook.com>"]
+authors = [{ name = "M. Guan", email = "mingjia.guan@outlook.com" }]
+requires-python = ">=3.11"
 readme = "README.md"
 license = "MIT"
-homepage = "https://github.com/mxngjxa/lshrs"
-repository = "https://github.com/mxngjxa/lshrs"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
 ]
-packages = [{include = "lshrs", from = "src"}]
+dependencies = [
+    "scipy",
+    "scikit-learn",
+    "numpy",
+    "nltk",
+    "ruff>=0.13.3",
+]
 
-[tool.poetry.dependencies]
-python = ">3.11"
-scipy = "*"
-scikit-learn = "*"
-numpy = "*"
-nltk = "*"
-twine = "*"
-build = "*"
+[project.urls]
+Homepage = "https://github.com/mxngjxa/lshrs"
+Repository = "https://github.com/mxngjxa/lshrs"
 
-[tool.poetry.group.dev.dependencies]
-ruff = "*"
+[dependency-groups]
+dev = ["ruff"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/lshrs"]
+
+[tool.hatch.build.targets.wheel]
+include = ["src/lshrs"]
+
+[tool.hatch.build.targets.wheel.sources]
+"src/lshrs" = "lshrs"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [tool.ruff]
 line-length = 88
@@ -31,7 +44,3 @@ lint.select = [
   "E", "F", "W", "I",  # Basic style and import sorting
 ]
 fix = true         # Enable autofix (if used with `ruff check --fix`)
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
