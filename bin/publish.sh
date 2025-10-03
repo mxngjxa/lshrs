@@ -1,5 +1,14 @@
-# For publishing the package to PyPI in conjunction with a publish.yml workflow
+#!/bin/bash
 
 set -eux
 
-twine upload dist/*
+# Load environment variables from .env file
+if [ -f .env ]; then
+    set -o allexport
+    source .env
+    set +o allexport
+fi
+
+rm -rf dist/
+uv build
+uv publish --token $UV_PUBLISH_TOKEN
