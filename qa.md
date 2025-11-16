@@ -70,3 +70,108 @@ it should be minimally but configurable. that means a lot of defualts when defin
 7. Do you want this package to include **error and health reporting** (custom exceptions, instrumentation, logging) in a style similar to your existing `exceptions.py` and logging in the pipeline, or should it be very lightweight and let host applications handle that?[5][2]
 
 let host handle that. we should throw minimal errors
+
+
+
+-----------------------
+
+Great! I can see your existing codebase structure and the architecture you've already outlined. Let me ask you a few clarifying questions to help generate a comprehensive `requirements.md`:
+
+## Questions:
+
+1. **Vector dimensionality**: What is the expected range of vector dimensions your system should support? (e.g., 128-2048 dims, flexible, or specific to BERT embeddings like 768?)
+
+flexible, but once the system has been initialized, then the dimension of vectors that it accepts is fixed. 
+
+2. **LSH parameter optimization**: For the auto-optimization of `num_bands` and `rows_per_band`, what are the target similarity thresholds you want to optimize for? (e.g., cosine similarity > 0.7, 0.8, 0.9?)
+
+I need it to be optimized according to this theorem/function:
+
+
+```python
+# computes the optimal b and r values for the LSHRS algorithm
+import numpy as np
+from scipy.integrate import quad as integrate
+
+
+def br(num_permutations: int) -> tuple[int, int]:
+    """
+    Computes the optimal number of bands (b) and rows (r) for LSHRS based
+    on the number of permutations.
+
+    :param num_permutations: The total number of permutations used in MinHashing.
+    :return: A tuple containing the number of bands (b) and the number of rows (r).
+    """
+    # The optimal b is typically chosen as the square root of the number of
+    # permutations
+    b = int(np.sqrt(num_permutations))
+    # r is then calculated as the total permutations divided by b
+    r = num_permutations // b
+
+    return b, r
+
+
+# old class
+
+
+class OptimalBR:
+    def false_positive(self, r, b):
+        return integrate(lambda t: (1 - (1 - t ** r) ** b), 0, self.t0)[0]
+
+    def false_negative(self, r, b):
+        return integrate(lambda t: (1 - t ** r) ** b, self.t0, 1)[0]
+
+    def br(self, n):
+        self.t0 = 0.5
+
+        best_fpr = float("inf")
+        best_fnr = float("inf")
+        best_b = None
+        best_r = None
+
+        # Iterate over possible values of r
+        for r in range(1, n + 1):
+            if n % r != 0:
+                continue  # Skip if not evenly divisible
+
+            # Calculate corresponding b
+            b = n // r
+
+            # Calculate false positive rate and false negative rate
+            fpr = self.false_positive(r, b)
+            fnr = self.false_negative(r, b)
+
+            # Update best values if found
+            if fpr < best_fpr or (fpr == best_fpr and fnr < best_fnr):
+                best_fpr = fpr
+                best_fnr = fnr
+                best_b = b
+                best_r = r
+
+        return best_b, best_r
+```
+
+
+or equivalent. this fix is in progress.
+
+
+3. **Performance benchmarks**: Besides the 6.4M Wikipedia dataset, are there specific latency requirements? (e.g., query response time < 100ms, indexing throughput > 10k vectors/sec?)
+
+both your estimates are good targets to work towards. assume simple laptop with no hardware acceleration
+
+
+4. **Data freshness**: For the "occasionally insert" use case, what's the expected insertion rate? (e.g., 100 vectors/hour, 1k/day, real-time individual inserts?)
+
+yes, roughly 100 vectors/hour
+
+5. **Persistence and recovery**: Should the system support saving/loading the LSH state (random projection matrices, config) to disk for reproducibility, or is it acceptable to rebuild from scratch each time?
+
+yes it should. now theoretically, the system only needs to keep the dinmension of the vectors and the seed where the vectors were created for an ultra compact version of the library and can just create the random vectors upon loading again
+
+6. **Multi-tenancy**: Do you need support for multiple independent LSH indices in the same Redis instance using different prefixes?
+
+nope, we are only going to use one redis instance per instance of the database right now. 
+
+7. **Testing scope**: What level of test coverage are you targeting? (e.g., unit tests only, integration tests with real Redis, performance benchmarks?)
+
+comprehensive tests regarding the package itself with a demo parquet file and a small redis instance that will be 
