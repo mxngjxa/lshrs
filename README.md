@@ -249,13 +249,13 @@ Supporting helpers:
 2. Run the test suite:
 
    ```bash
-   pytest
+   uv run --dev pytest
    ```
 
 3. Lint (if you have [`ruff`](https://github.com/astral-sh/ruff) configured):
 
    ```bash
-   ruff check .
+   uv run --dev ruff check
    ```
 
 > [!NOTE]
