@@ -11,7 +11,7 @@ except importlib.metadata.PackageNotFoundError:
 __version__: Final[str] = _version
 
 # Let users know if they're missing any of our hard dependencies
-_hard_dependencies = ("numpy", "redis")
+_hard_dependencies = ("numpy", "redis", "scipy")
 
 for _dependency in _hard_dependencies:
     try:
