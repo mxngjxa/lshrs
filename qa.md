@@ -73,322 +73,105 @@ let host handle that. we should throw minimal errors
 
 
 
-Based on your requirements and the datasketch repository you referenced, here's a simplified and clean architecture plan for your Redis-backed LSH package.[1][2]
+-----------------------
 
-## Revised LSH-Redis Architecture Plan
+Great! I can see your existing codebase structure and the architecture you've already outlined. Let me ask you a few clarifying questions to help generate a comprehensive `requirements.md`:
 
-### Package Structure (Minimal)
-```
-lshrs/
-├── __init__.py      # Main LSHRS class
-├── hasher.py        # LSH hashing implementation  
-├── storage.py       # Redis backend
-└── similarity.py    # Cosine similarity utilities
-```
+## Questions:
 
-### Core API Design
+1. **Vector dimensionality**: What is the expected range of vector dimensions your system should support? (e.g., 128-2048 dims, flexible, or specific to BERT embeddings like 768?)
 
-Following the datasketch pattern but keeping it simple:[1]
+flexible, but once the system has been initialized, then the dimension of vectors that it accepts is fixed. 
+
+2. **LSH parameter optimization**: For the auto-optimization of `num_bands` and `rows_per_band`, what are the target similarity thresholds you want to optimize for? (e.g., cosine similarity > 0.7, 0.8, 0.9?)
+
+I need it to be optimized according to this theorem/function:
+
 
 ```python
-from typing import Optional, List, Union, Callable
+# computes the optimal b and r values for the LSHRS algorithm
 import numpy as np
+from scipy.integrate import quad as integrate
 
-class LSHRS:
-    def __init__(
-        self,
-        *,
-        # Redis config
-        redis_host: str = "localhost",
-        redis_port: int = 6379,
-        redis_db: int = 0,
-        redis_password: Optional[str] = None,
-        
-        # LSH parameters  
-        num_perm: int = 128,
-        num_bands: int = None,  # Auto-optimize if None
-        rows_per_band: int = None,  # Auto-optimize if None
-        
-        # External vector storage
-        vector_fetch_fn: Optional[Callable] = None,
-        
-        # Performance
-        buffer_size: int = 10000,
-    ):
-        """
-        Initialize LSH index with Redis backend.
-        
-        Args:
-            redis_host: Redis hostname
-            redis_port: Redis port 
-            redis_db: Redis database number
-            redis_password: Optional Redis password
-            
-            num_perm: Number of hash functions
-            num_bands: Number of bands (auto-optimized if None)
-            rows_per_band: Rows per band (auto-optimized if None)
-            
-            vector_fetch_fn: Function to fetch vectors by indices
-            buffer_size: Buffer size for bulk operations
-        """
-        self.redis = self._connect_redis(redis_host, redis_port, redis_db, redis_password)
-        self.num_perm = num_perm
-        
-        # Auto-optimize bands/rows if not provided
-        if num_bands is None or rows_per_band is None:
-            self.b, self.r = self._optimize_params()
-        else:
-            self.b, self.r = num_bands, rows_per_band
-            
-        self.vector_fetch = vector_fetch_fn
-        self.buffer_size = buffer_size
-        self._init_hasher()
-```
 
-### Method Signatures (Clean Interface)
-
-```python
-def index(self, indices: List[int], vectors: Optional[np.ndarray] = None) -> None:
+def br(num_permutations: int) -> tuple[int, int]:
     """
-    Batch index vectors. Builds LSH buckets in Redis.
-    
-    Args:
-        indices: Vector indices  
-        vectors: Optional vectors (fetched externally if None)
+    Computes the optimal number of bands (b) and rows (r) for LSHRS based
+    on the number of permutations.
+
+    :param num_permutations: The total number of permutations used in MinHashing.
+    :return: A tuple containing the number of bands (b) and the number of rows (r).
     """
-    if vectors is None and self.vector_fetch is None:
-        raise ValueError("Vectors or vector_fetch_fn required")
-    
-    if vectors is None:
-        vectors = self.vector_fetch(indices)
-    
-    # Process in batches
-    for batch_start in range(0, len(indices), self.buffer_size):
-        batch_end = min(batch_start + self.buffer_size, len(indices))
-        self._index_batch(
-            indices[batch_start:batch_end],
-            vectors[batch_start:batch_end]
-        )
+    # The optimal b is typically chosen as the square root of the number of
+    # permutations
+    b = int(np.sqrt(num_permutations))
+    # r is then calculated as the total permutations divided by b
+    r = num_permutations // b
 
-def ingest(self, index: int, vector: np.ndarray) -> None:
-    """Add single vector to index."""
-    hashes = self._hash_vector(vector)
-    for band_idx, hash_val in enumerate(hashes):
-        key = self._make_key(band_idx, hash_val)
-        self.redis.sadd(key, index)
+    return b, r
 
-def query(
-    self, 
-    vector: np.ndarray,
-    top_k: Optional[int] = 10,
-    top_p: Optional[float] = None
-) -> List[Union[int, tuple]]:
-    """
-    Query similar vectors.
-    
-    Args:
-        vector: Query vector
-        top_k: Return top K results
-        top_p: Return top percentage (requires vector_fetch_fn)
-        
-    Returns:
-        List of indices or (index, score) tuples
-    """
-    # Get candidates from buckets
-    candidates = self._get_candidates(vector)
-    
-    # For top_k only, return candidates directly
-    if top_k and not top_p:
-        return list(candidates)[:top_k]
-    
-    # For top_p, need to compute similarities
-    if top_p:
-        if self.vector_fetch is None:
-            raise ValueError("top_p requires vector_fetch_fn")
-        return self._rerank_top_p(vector, candidates, top_p, top_k)
-    
-def delete(self, indices: Union[int, List[int]]) -> None:
-    """Remove vectors from index."""
-    if isinstance(indices, int):
-        indices = [indices]
-    
-    # Scan all buckets and remove indices
-    pattern = f"lsh:*:bucket:*"
-    for key in self.redis.scan_iter(match=pattern):
-        self.redis.srem(key, *indices)
+
+# old class
+
+
+class OptimalBR:
+    def false_positive(self, r, b):
+        return integrate(lambda t: (1 - (1 - t ** r) ** b), 0, self.t0)[0]
+
+    def false_negative(self, r, b):
+        return integrate(lambda t: (1 - t ** r) ** b, self.t0, 1)[0]
+
+    def br(self, n):
+        self.t0 = 0.5
+
+        best_fpr = float("inf")
+        best_fnr = float("inf")
+        best_b = None
+        best_r = None
+
+        # Iterate over possible values of r
+        for r in range(1, n + 1):
+            if n % r != 0:
+                continue  # Skip if not evenly divisible
+
+            # Calculate corresponding b
+            b = n // r
+
+            # Calculate false positive rate and false negative rate
+            fpr = self.false_positive(r, b)
+            fnr = self.false_negative(r, b)
+
+            # Update best values if found
+            if fpr < best_fpr or (fpr == best_fpr and fnr < best_fnr):
+                best_fpr = fpr
+                best_fnr = fnr
+                best_b = b
+                best_r = r
+
+        return best_b, best_r
 ```
 
-### Storage Implementation (Redis-only)
 
-```python
-# storage.py
-import redis
-from typing import Set, List
+or equivalent. this fix is in progress.
 
-class RedisStorage:
-    def __init__(self, host="localhost", port=6379, db=0, password=None):
-        self.redis = redis.Redis(
-            host=host, 
-            port=port, 
-            db=db,
-            password=password,
-            decode_responses=False  # Work with bytes
-        )
-        
-    def add_to_bucket(self, band_id: int, hash_val: bytes, index: int):
-        """Add index to bucket."""
-        key = f"lsh:{band_id}:bucket:{hash_val.hex()}"
-        self.redis.sadd(key, index)
-        
-    def get_bucket(self, band_id: int, hash_val: bytes) -> Set[int]:
-        """Get all indices in bucket."""
-        key = f"lsh:{band_id}:bucket:{hash_val.hex()}"
-        return {int(x) for x in self.redis.smembers(key)}
-        
-    def batch_add(self, operations: List[tuple]):
-        """Batch add with pipelining."""
-        pipe = self.redis.pipeline()
-        for band_id, hash_val, index in operations:
-            key = f"lsh:{band_id}:bucket:{hash_val.hex()}"
-            pipe.sadd(key, index)
-        pipe.execute()
-```
 
-### Hasher Module (Simple Random Projection)
+3. **Performance benchmarks**: Besides the 6.4M Wikipedia dataset, are there specific latency requirements? (e.g., query response time < 100ms, indexing throughput > 10k vectors/sec?)
 
-```python
-# hasher.py
-import numpy as np
-from typing import List
+both your estimates are good targets to work towards. assume simple laptop with no hardware acceleration
 
-class LSHHasher:
-    def __init__(self, num_bands: int, rows_per_band: int, dim: int, seed: int = 42):
-        np.random.seed(seed)
-        self.num_bands = num_bands
-        self.rows_per_band = rows_per_band
-        
-        # Random projection matrices for each band
-        self.projections = [
-            np.random.randn(rows_per_band, dim) 
-            for _ in range(num_bands)
-        ]
-    
-    def hash_vector(self, vector: np.ndarray) -> List[bytes]:
-        """Hash vector into band signatures."""
-        signatures = []
-        for projection in self.projections:
-            # Project and binarize
-            projected = projection @ vector
-            binary = (projected > 0).astype(np.uint8)
-            # Pack into bytes
-            signatures.append(binary.tobytes())
-        return signatures
-```
 
-### Integration Pattern
+4. **Data freshness**: For the "occasionally insert" use case, what's the expected insertion rate? (e.g., 100 vectors/hour, 1k/day, real-time individual inserts?)
 
-```python
-# __init__.py - Main class implementation
-class LSHRS:
-    def _index_batch(self, indices: List[int], vectors: np.ndarray):
-        """Index a batch of vectors."""
-        operations = []
-        
-        for idx, vec in zip(indices, vectors):
-            signatures = self.hasher.hash_vector(vec)
-            for band_id, sig in enumerate(signatures):
-                operations.append((band_id, sig, idx))
-        
-        # Batch insert to Redis
-        self.storage.batch_add(operations)
-    
-    def _get_candidates(self, vector: np.ndarray) -> Set[int]:
-        """Get candidate indices from buckets."""
-        signatures = self.hasher.hash_vector(vector)
-        candidates = set()
-        
-        for band_id, sig in enumerate(signatures):
-            bucket = self.storage.get_bucket(band_id, sig)
-            candidates.update(bucket)
-            
-        return candidates
-    
-    def _rerank_top_p(self, query: np.ndarray, candidates: Set[int], 
-                      top_p: float, top_k: Optional[int]) -> List[tuple]:
-        """Rerank candidates by exact cosine similarity."""
-        # Fetch candidate vectors
-        candidate_list = list(candidates)
-        candidate_vectors = self.vector_fetch(candidate_list)
-        
-        # Compute cosine similarities
-        query_norm = query / np.linalg.norm(query)
-        similarities = []
-        
-        for vec in candidate_vectors:
-            vec_norm = vec / np.linalg.norm(vec)
-            sim = np.dot(query_norm, vec_norm)
-            similarities.append(sim)
-        
-        similarities = np.array(similarities)
-        
-        # Get top p percent
-        threshold = np.percentile(similarities, 100 - top_p)
-        mask = similarities >= threshold
-        
-        # Return sorted results
-        selected = [(candidate_list[i], similarities[i]) 
-                   for i in range(len(candidate_list)) if mask[i]]
-        selected.sort(key=lambda x: x[1], reverse=True)
-        
-        if top_k:
-            return selected[:top_k]
-        return selected
-```
+yes, roughly 100 vectors/hour
 
-### Usage Example
+5. **Persistence and recovery**: Should the system support saving/loading the LSH state (random projection matrices, config) to disk for reproducibility, or is it acceptable to rebuild from scratch each time?
 
-```python
-import psycopg2
-import numpy as np
-from lshrs import LSHRS
+yes it should. now theoretically, the system only needs to keep the dinmension of the vectors and the seed where the vectors were created for an ultra compact version of the library and can just create the random vectors upon loading again
 
-# Vector fetch function for PostgreSQL
-def fetch_vectors_postgres(indices):
-    with psycopg2.connect("postgresql://localhost/mydb") as conn:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT vector FROM embeddings WHERE id = ANY(%s) ORDER BY id",
-            (indices,)
-        )
-        return np.array([row[0] for row in cur.fetchall()])
+6. **Multi-tenancy**: Do you need support for multiple independent LSH indices in the same Redis instance using different prefixes?
 
-# Initialize LSH
-lsh = LSHRS(
-    redis_host="localhost",
-    num_perm=128,
-    vector_fetch_fn=fetch_vectors_postgres
-)
+nope, we are only going to use one redis instance per instance of the database right now. 
 
-# Batch index Wikipedia (6.4M vectors)
-all_indices = list(range(6_400_000))
-lsh.index(all_indices)  # Vectors fetched from PostgreSQL
+7. **Testing scope**: What level of test coverage are you targeting? (e.g., unit tests only, integration tests with real Redis, performance benchmarks?)
 
-# Query
-query_vec = np.random.randn(768)  # BERT embedding
-results = lsh.query(query_vec, top_k=10)
-
-# Add new document  
-lsh.ingest(6_400_001, np.random.randn(768))
-
-# Delete documents
-lsh.delete([1, 2, 3])
-```
-
-### Key Design Decisions (Simplified)
-
-1. **Single Module**: Everything in one small package, no complex structure[1]
-2. **Redis for Buckets Only**: Just stores index mappings, vectors stay in user's database[1]
-3. **No Custom Exceptions**: Let Redis/NumPy errors bubble up naturally[2]
-4. **Minimal Config**: Smart defaults with optional overrides like datasketch[1]
-5. **Buffer Operations**: Use Redis pipelining for batch operations[1]
-6. **Simple Hashing**: Random projection LSH, no complex MinHash[1]
+comprehensive tests regarding the package itself with a demo parquet file and a small redis instance that will be 
