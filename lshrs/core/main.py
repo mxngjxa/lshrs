@@ -87,7 +87,7 @@ class LSHRS:
         num_bands or rows_per_band is not explicitly provided. Range: (0, 1).
         Lower values = more aggressive matching, higher recall.
 
-    buffer_size : int, default=10000
+    buffer_size : int, default=8912
         Number of Redis operations to accumulate before pipelining. Larger buffers
         improve throughput but increase memory usage and latency. Sweet spot: 1k-100k.
 
@@ -808,7 +808,7 @@ class LSHRS:
             'num_perm': 120,
             'num_bands': 20,
             'rows_per_band': 6,
-            'buffer_size': 10000,
+            'buffer_size': 8912,
             'similarity_threshold': 0.5,
             'redis_prefix': 'lsh'
         }
