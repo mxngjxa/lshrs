@@ -8,6 +8,10 @@ dependencies = [
     "numpy>=2.3.4",
     "scipy>=1.14.1",
     "redis>=7.0.1",
+]
+
+[project.optional-dependencies]
+postgres = [
     "psycopg>=3.2.12",
 ]
 
