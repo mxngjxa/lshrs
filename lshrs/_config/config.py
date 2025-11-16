@@ -6,7 +6,7 @@ a uniform API for working with them.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, Set
+from typing import Iterable, Tuple
 
 @dataclass(frozen=True)
 class HashSignatures:
@@ -18,18 +18,26 @@ class HashSignatures:
     similar pairs. The banding technique allows tuning the similarity threshold.
 
     Attributes:
-        bands: List of byte strings, one per band. Each byte string represents
+        bands: Tuple of byte strings, one per band. Each byte string represents
                a packed binary hash signature (the result of multiple random projections).
+               Band order is preserved so hash lookups remain deterministic.
 
     Example:
-        >>> sigs = HashSignatures([b'\x01\x02', b'\xff\x00', b'\xaa\xbb'])
+        >>> sigs = HashSignatures((b'\x01\x02', b'\xff\x00', b'\xaa\xbb'))
         >>> len(sigs)  # Number of bands
         3
         >>> for band_sig in sigs:
         ...     print(band_sig.hex())  # Print each band's signature in hex
     """
 
-    bands: Set[bytes]
+    bands: Tuple[bytes, ...]
+
+    def __post_init__(self) -> None:
+        """
+        Normalize input into an immutable tuple of bytes.
+        """
+        normalized = tuple(bytes(band) for band in self.bands)
+        object.__setattr__(self, "bands", normalized)
 
     def __iter__(self) -> Iterable[bytes]:
         """
@@ -48,3 +56,15 @@ class HashSignatures:
             Number of bands in this signature set.
         """
         return len(self.bands)
+
+    def __getitem__(self, item: int) -> bytes:
+        """
+        Random access helper to retrieve the signature for a specific band.
+        """
+        return self.bands[item]
+
+    def as_tuple(self) -> Tuple[bytes, ...]:
+        """
+        Return the underlying tuple for use in hash key generation.
+        """
+        return self.bands
