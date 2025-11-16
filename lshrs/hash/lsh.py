@@ -17,7 +17,6 @@ import numpy as np
 from lshrs._config.config import HashSignatures
 
 
-
 class LSHHasher:
     """
     Random projection based Locality-Sensitive Hashing (LSH) hasher.
@@ -257,4 +256,3 @@ class LSHHasher:
             )
 
         return vec
-    

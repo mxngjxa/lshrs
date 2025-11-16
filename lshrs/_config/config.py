@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, Tuple
 
+
 @dataclass(frozen=True)
 class HashSignatures:
     """

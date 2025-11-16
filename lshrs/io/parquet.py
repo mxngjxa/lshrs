@@ -56,80 +56,80 @@ def iter_parquet_vectors(
     This function provides memory-efficient loading of vector embeddings stored
     in Parquet format. It uses PyArrow's columnar reader to stream data in
     configurable batches, enabling processing of datasets larger than RAM.
-    
+
     The function expects a Parquet file with:
         1. An integer column containing unique identifiers
         2. An array/list column containing vector embeddings
-    
+
     Common Parquet schemas for vectors:
         - Fixed-size lists: LIST<FLOAT32> with fixed length
         - Variable lists: LIST<FLOAT32> (validated for consistency)
         - Nested arrays: Compatible with pandas/numpy array storage
-    
+
     Memory usage: O(batch_size × vector_dimension × 4 bytes)
-    
+
     Parameters
     ----------
     source : Path or str
         Path to the Parquet file on disk. Can be absolute or relative.
         Tilde expansion (~) is supported for home directories.
-        
+
     index_column : str, default="index"
         Name of the column containing integer identifiers.
         These become the keys in your LSH index.
         Common names: "id", "index", "doc_id", "item_id"
-        
+
     vector_column : str, default="vector"
         Name of the column containing vector embeddings.
         Vectors must be stored as arrays or lists of floats.
         Common names: "embedding", "vector", "features", "representation"
-        
+
     batch_size : int, default=10000
-        Number of rows to read per iteration. 
-        
+        Number of rows to read per iteration.
+
         Trade-offs:
             - Larger: Better I/O efficiency, more memory usage
             - Smaller: Less memory, more I/O operations
-            
+
         Guidelines:
             - Small vectors (128d): 10,000-50,000 rows
-            - Medium vectors (768d): 5,000-20,000 rows  
+            - Medium vectors (768d): 5,000-20,000 rows
             - Large vectors (4096d): 1,000-5,000 rows
-            
+
     Yields
     ------
     Iterator[Tuple[List[int], NDArray[np.float32]]]
         For each batch yields a tuple of:
             - indices: List of integer IDs from index_column
             - vectors: 2D numpy array of shape (batch_size, dimension)
-        
+
         Last batch may have fewer rows than batch_size.
         All vectors are converted to float32 for consistency.
-        
+
     Raises
     ------
     ImportError
         If pyarrow is not installed. Install with: pip install pyarrow
-        
+
     FileNotFoundError
         If the Parquet file doesn't exist at the specified path.
-        
+
     ValueError
         If required columns are missing from the Parquet schema.
         If batch_size is <= 0.
         If vectors have inconsistent dimensions within or across batches.
         If any vector is empty (zero-length).
-        
+
     Examples
     --------
     Basic usage with default column names:
-    
+
     >>> for indices, vectors in iter_parquet_vectors("data.parquet"):
     ...     print(f"Batch: {len(indices)} vectors of shape {vectors.shape}")
     ...     # Process batch...
-    
+
     Custom columns and batch size:
-    
+
     >>> loader = iter_parquet_vectors(
     ...     "embeddings.parquet",
     ...     index_column="document_id",
@@ -138,16 +138,16 @@ def iter_parquet_vectors(
     ... )
     >>> for batch_indices, batch_vectors in loader:
     ...     lsh.index(batch_indices, batch_vectors)
-    
+
     Integration with LSH indexing:
-    
+
     >>> lsh = LSHRS(dim=768)
     >>> total = 0
     >>> for indices, vectors in iter_parquet_vectors("corpus.parquet"):
     ...     lsh.index(indices, vectors)
     ...     total += len(indices)
     >>> print(f"Indexed {total} vectors")
-    
+
     Notes
     -----
     File format requirements:
@@ -155,13 +155,13 @@ def iter_parquet_vectors(
         - Index column must contain integers (int32/int64)
         - Vector column must contain arrays/lists of numbers
         - All vectors must have the same dimension
-    
+
     Performance tips:
         - Use columnar selection (only reads needed columns)
         - Parquet files with row group sizes matching batch_size are optimal
         - Consider sorting by index column for better locality
         - Use Snappy or LZ4 compression for balance of speed/size
-    
+
     Memory management:
         - Each batch allocates new memory (previous batches can be GC'd)
         - Peak memory ≈ batch_size × vector_dim × 4 bytes
@@ -177,7 +177,7 @@ def iter_parquet_vectors(
     # Resolve path with tilde expansion for home directory
     # expanduser() converts ~/data.parquet → /home/user/data.parquet
     path = Path(source).expanduser()
-    
+
     # Validate file existence with clear error message
     if not path.exists():
         raise FileNotFoundError(f"Parquet source '{path}' does not exist")
@@ -189,7 +189,7 @@ def iter_parquet_vectors(
     # Open Parquet file for reading
     # ParquetFile provides low-level access with iterator support
     parquet_file = pq.ParquetFile(path)
-    
+
     # Get Arrow schema for column validation
     # schema_arrow is the PyArrow schema (not Parquet schema)
     schema = parquet_file.schema_arrow
@@ -221,7 +221,7 @@ def iter_parquet_vectors(
         # to_pylist() handles Arrow → Python type conversion
         # Cast indices to int (handles int32/int64/uint variants)
         indices = [int(value) for value in indices_array.to_pylist()]
-        
+
         # Convert vector lists to numpy array with validation
         # _coerce_vectors handles dimension checking and type conversion
         vectors = _coerce_vectors(vectors_array.to_pylist())
@@ -234,37 +234,37 @@ def iter_parquet_vectors(
 def _coerce_vectors(rows: Sequence[Sequence[float]]) -> NDArray[np.float32]:
     """
     Convert a sequence of vector rows into a dense float32 matrix.
-    
+
     This helper function performs critical validation and normalization:
         1. Converts each row to numpy array
         2. Validates non-empty vectors
         3. Ensures dimensional consistency
         4. Stacks into efficient 2D matrix
-    
+
     The function enforces that all vectors in a batch have identical
     dimensions, which is required for efficient matrix operations in
     LSH and similarity computations.
-    
+
     Parameters
     ----------
     rows : Sequence[Sequence[float]]
         List of vector rows from Parquet file.
         Each row is a list/array of floating point values.
         Can be Python lists, numpy arrays, or other sequences.
-    
+
     Returns
     -------
     NDArray[np.float32]
         2D array of shape (num_vectors, dimension).
         All vectors normalized to float32 dtype.
         Contiguous memory layout for cache efficiency.
-    
+
     Raises
     ------
     ValueError
         If any vector is empty (zero length).
         If vectors have inconsistent dimensions within the batch.
-    
+
     Examples
     --------
     >>> rows = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
@@ -273,7 +273,7 @@ def _coerce_vectors(rows: Sequence[Sequence[float]]) -> NDArray[np.float32]:
     (2, 3)
     >>> matrix.dtype
     dtype('float32')
-    
+
     Notes
     -----
     Design decisions:
@@ -281,7 +281,7 @@ def _coerce_vectors(rows: Sequence[Sequence[float]]) -> NDArray[np.float32]:
         - Dimension validation happens per-batch (not globally)
         - Empty vectors raise errors (not silently skipped)
         - Uses numpy.stack for efficient memory layout
-    
+
     Performance characteristics:
         - O(n × d) time where n = num_vectors, d = dimension
         - Single allocation for output matrix
@@ -289,7 +289,7 @@ def _coerce_vectors(rows: Sequence[Sequence[float]]) -> NDArray[np.float32]:
     """
     # Accumulator for normalized vectors
     normalized: List[NDArray[np.float32]] = []
-    
+
     # Track expected dimension (set from first vector)
     # None initially, then locked to first vector's dimension
     expected_dim: Optional[int] = None

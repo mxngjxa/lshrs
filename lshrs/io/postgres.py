@@ -194,7 +194,9 @@ def _coerce_vector(raw_value: Any) -> NDArray[np.float32]:
     elif isinstance(raw_value, str):
         stripped = raw_value.strip("{}[]() ")
         if not stripped:
-            raise ValueError("Encountered empty vector representation in PostgreSQL row")
+            raise ValueError(
+                "Encountered empty vector representation in PostgreSQL row"
+            )
         array = np.fromiter(
             (float(part) for part in stripped.split(",")),
             dtype=np.float32,
