@@ -1,7 +1,7 @@
 import importlib.metadata
 from typing import Final
 
-from lshrs.core.main import lshrs
+from lshrs.core.main import LSHRS, lshrs
 
 
 try:
@@ -25,4 +25,4 @@ for _dependency in _hard_dependencies:
 del _hard_dependencies, _dependency
 
 
-__all__ = ["lshrs"]
+__all__ = ["LSHRS", "lshrs"]
