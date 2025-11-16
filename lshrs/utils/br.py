@@ -1,291 +1,265 @@
 """
-Optimized Band/Row Calculator for LSHRS
-Combines simple heuristics with sophisticated optimization.
-No scipy dependencies - uses efficient numpy operations only.
+LSH Configuration Module
+
+Precomputed optimal (b, r) configurations for common hash sizes and similarity thresholds.
+Based on LSH theory where threshold ≈ (1/b)^(1/r) and probability P = 1 - (1 - s^r)^b
 """
 
 import numpy as np
-from typing import Tuple, Optional, Dict, List
-import math
+from scipy.integrate import quad
+from typing import Dict, Tuple, Optional
 
 
-class broptimizer:
+# Pre-computed optimal configurations for common hash sizes
+# Format: hash_size -> {threshold: (b, r)}
+# where b = number of bands, r = rows per band
+PRECOMPUTED_CONFIGS = {
+    4096: {  # 2^12
+        0.5: (512, 8),   # Actual threshold: 0.459, FP: 7.1%, FN: 0.3%
+        0.7: (256, 16),  # Actual threshold: 0.707, FP: 2.9%, FN: 1.3%
+        0.85: (128, 32), # Actual threshold: 0.859, FP: 1.5%, FN: 1.0%
+        0.9: (64, 64),   # Actual threshold: 0.937, FP: 0.1%, FN: 3.0%
+        0.95: (32, 128), # Actual threshold: 0.973, FP: 0.03%, FN: 1.9%
+    },
+    8192: {  # 2^13
+        0.4: (1024, 8),  # Actual threshold: 0.420, FP: 2.5%, FN: 2.1%
+        0.7: (512, 16),  # Actual threshold: 0.677, FP: 4.8%, FN: 0.3%
+        0.8: (256, 32),  # Actual threshold: 0.841, FP: 0.5%, FN: 3.1%
+        0.85: (256, 32), # Actual threshold: 0.841, FP: 2.7%, FN: 0.3%
+        0.9: (128, 64),  # Actual threshold: 0.927, FP: 0.2%, FN: 2.1%
+        0.95: (64, 128), # Actual threshold: 0.968, FP: 0.06%, FN: 1.4%
+    },
+    16384: {  # 2^14
+        0.4: (2048, 8),  # Actual threshold: 0.386, FP: 4.4%, FN: 0.7%
+        0.6: (1024, 16), # Actual threshold: 0.648, FP: 1.0%, FN: 3.7%
+        0.8: (512, 32),  # Actual threshold: 0.823, FP: 0.9%, FN: 1.8%
+        0.85: (512, 32), # Actual threshold: 0.823, FP: 4.2%, FN: 0.04%
+        0.9: (256, 64),  # Actual threshold: 0.917, FP: 0.4%, FN: 1.3%
+        0.95: (128, 128),# Actual threshold: 0.963, FP: 0.1%, FN: 1.0%
+    },
+    32768: {  # 2^15 - Production scale
+        0.4: (4096, 8),   # Fuzzy matching - Actual: 0.354, FP: 6.8%, FN: 0.1%
+        0.6: (2048, 16),  # High recall - Actual: 0.621, FP: 1.8%, FN: 1.9%
+        0.8: (1024, 32),  # Standard dedup - Actual: 0.805, FP: 1.6%, FN: 0.8%
+        0.85: (1024, 32), # High precision - Actual: 0.805, FP: 5.9%, FN: 0.0%
+        0.9: (512, 64),   # Very high precision - Actual: 0.907, FP: 0.7%, FN: 0.6%
+        0.95: (256, 128), # Near-exact - Actual: 0.958, FP: 0.2%, FN: 0.6%
+    },
+    65536: {  # 2^16 - Large scale
+        0.3: (8192, 8),   # Very fuzzy - Actual: 0.324, FP: 1.6%, FN: 2.1%
+        0.6: (4096, 16),  # Moderate recall - Actual: 0.595, FP: 3.1%, FN: 0.7%
+        0.8: (2048, 32),  # Balanced - Actual: 0.788, FP: 2.8%, FN: 0.2%
+        0.85: (1024, 64), # High precision - Actual: 0.897, FP: 0.04%, FN: 4.0%
+        0.9: (1024, 64),  # Very high precision - Actual: 0.897, FP: 1.3%, FN: 0.2%
+        0.95: (512, 128), # Near-exact - Actual: 0.952, FP: 0.5%, FN: 0.3%
+    },
+}
+
+
+def compute_lsh_threshold(b: int, r: int) -> float:
     """
-    Advanced LSH band/row optimizer for the LSHRS system.
+    Compute the approximate similarity threshold for an LSH configuration.
 
-    Supports:
-    - Hash sizes from small (128) to large-scale (2^15 = 32,768)
-    - Multiple optimization strategies (balanced, fpr, fnr, threshold)
-    - Memory-aware configuration for production deployments
-    - No scipy dependencies - pure numpy implementation
-    """
-
-    # Pre-computed optimal configurations for common hash sizes
-    # Carefully tuned based on LSH theory: threshold ≈ (1/b)^(1/r)
-    PRECOMPUTED = {
-        128: {
-            0.5: (16, 8),
-            0.7: (8, 16), 
-            0.8: (8, 16),
-            0.9: (4, 32),
-        },
-        256: {
-            0.5: (32, 8),
-            0.7: (16, 16),
-            0.8: (16, 16),
-            0.9: (8, 32),
-        },
-        1024: {
-            0.5: (64, 16),
-            0.7: (32, 32),
-            0.8: (32, 32),
-            0.9: (16, 64),
-        },
-        32768: {  # 2^15 - Production scale
-            0.4: (4096, 8),    # Fuzzy matching
-            0.5: (2048, 16),   # High recall
-            0.6: (2048, 16),   # Moderate recall
-            0.7: (1024, 32),   # Balanced
-            0.8: (1024, 32),   # Standard dedup
-            0.85: (512, 64),   # High precision
-            0.9: (512, 64),    # Very high precision
-            0.95: (256, 128),  # Near-exact
-        }
-    }
-
-    @staticmethod
-    def find_optimal_br(
-        n: int,
-        target_threshold: float = 0.8,
-        optimize_for: str = 'balanced',
-        prefer_power_of_2: bool = False,
-        max_bands: Optional[int] = None,
-    ) -> Tuple[int, int]:
-        """
-        Find optimal b and r values for LSH.
-
-        Args:
-            n: Number of hash functions (permutations)
-            target_threshold: Target similarity threshold (0.3 to 0.95)
-            optimize_for: One of:
-                - 'simple': sqrt(n) heuristic (fastest)
-                - 'balanced': minimize FPR + FNR
-                - 'fpr': minimize false positives
-                - 'fnr': minimize false negatives  
-                - 'threshold': match target threshold
-                - 'memory': minimize memory (fewer bands)
-            prefer_power_of_2: Use power-of-2 values for efficiency
-            max_bands: Maximum bands allowed (memory constraint)
-
-        Returns:
-            (bands, rows) tuple
-        """
-
-        # Fast path for precomputed common cases
-        if n in LSHOptimizer.PRECOMPUTED and optimize_for == 'threshold':
-            configs = LSHOptimizer.PRECOMPUTED[n]
-            best_threshold = min(configs.keys(), 
-                               key=lambda x: abs(x - target_threshold))
-            if abs(best_threshold - target_threshold) < 0.1:
-                return configs[best_threshold]
-
-        # Simple heuristic
-        if optimize_for == 'simple':
-            b = int(np.sqrt(n))
-            # Ensure clean division
-            while n % b != 0 and b > 1:
-                b -= 1
-            r = n // b
-            return b, r
-
-        # Get candidate divisors
-        if n > 10000:
-            divisors = LSHOptimizer._get_efficient_divisors(n, prefer_power_of_2)
-        else:
-            divisors = [(n//r, r) for r in range(1, n+1) if n % r == 0]
-
-        # Apply constraints
-        if max_bands:
-            divisors = [(b, r) for b, r in divisors if b <= max_bands]
-
-        if not divisors:
-            return LSHOptimizer.find_optimal_br(n, optimize_for='simple')
-
-        best_b, best_r = divisors[0]
-        best_score = float('inf')
-
-        for b, r in divisors:
-            threshold = (1/b)**(1/r) if b > 0 else 0
-
-            if optimize_for == 'threshold':
-                score = abs(threshold - target_threshold)
-            elif optimize_for == 'memory':
-                score = b  # Fewer bands = less memory
-            elif optimize_for in ['balanced', 'fpr', 'fnr']:
-                # Estimate error rates using trapezoidal rule
-                fpr, fnr = LSHOptimizer._estimate_rates(r, b, threshold)
-
-                if optimize_for == 'fpr':
-                    score = fpr + 0.1 * fnr
-                elif optimize_for == 'fnr':
-                    score = 0.1 * fpr + fnr
-                else:  # balanced
-                    score = fpr + fnr
-            else:
-                score = abs(threshold - 0.8)
-
-            if score < best_score:
-                best_score = score
-                best_b, best_r = b, r
-
-        return best_b, best_r
-
-    @staticmethod
-    def _estimate_rates(r: int, b: int, threshold: float, 
-                       n_samples: int = 20) -> Tuple[float, float]:
-        """Estimate false positive and false negative rates."""
-        # S-curve: P = 1 - (1 - s^r)^b
-
-        # FPR: probability when similarity < threshold
-        if threshold > 0:
-            x = np.linspace(0, threshold, n_samples)
-            y = [1 - (1 - xi**r)**b for xi in x]
-            fpr = np.trapz(y, x) / threshold
-        else:
-            fpr = 0
-
-        # FNR: probability of missing when similarity >= threshold
-        if threshold < 1:
-            x = np.linspace(threshold, 1, n_samples)
-            y = [(1 - xi**r)**b for xi in x]
-            fnr = np.trapz(y, x) / (1 - threshold)
-        else:
-            fnr = 0
-
-        return fpr, fnr
-
-    @staticmethod
-    def _get_efficient_divisors(n: int, prefer_power_of_2: bool) -> List[Tuple[int, int]]:
-        """Get efficient subset of divisors for large n."""
-        divisors = []
-
-        if prefer_power_of_2:
-            # Powers of 2 only
-            power = 1
-            while power <= n:
-                if n % power == 0:
-                    b = n // power
-                    if b & (b - 1) == 0:  # b is also power of 2
-                        divisors.append((b, power))
-                power *= 2
-        else:
-            # Sample divisors logarithmically
-            candidates = set()
-
-            # Powers of 2
-            r = 1
-            while r <= n:
-                candidates.add(r)
-                r *= 2
-
-            # Near sqrt(n)
-            sqrt_n = int(np.sqrt(n))
-            for offset in range(-5, 6):
-                r = sqrt_n + offset
-                if 0 < r <= n:
-                    candidates.add(r)
-
-            # Some fractions of n
-            for divisor in [4, 8, 16, 32, 64, 128, 256, 512]:
-                if n > divisor:
-                    candidates.add(n // divisor)
-
-            # Check valid divisors
-            for r in sorted(candidates):
-                if n % r == 0:
-                    divisors.append((n // r, r))
-
-        return divisors
-
-
-class OptimalBR:
-    """
-    Legacy class for backward compatibility.
-    Redirects to new LSHOptimizer implementation.
-    """
-
-    def __init__(self):
-        self.t0 = 0.5  # Default threshold
-
-    def br(self, n: int) -> Tuple[int, int]:
-        """Find optimal b,r using the new optimizer."""
-        return LSHOptimizer.find_optimal_br(
-            n, 
-            target_threshold=self.t0,
-            optimize_for='balanced'
-        )
-
-    def false_positive(self, r: int, b: int) -> float:
-        """Estimate false positive rate."""
-        threshold = (1/b)**(1/r) if b > 0 else 0
-        fpr, _ = LSHOptimizer._estimate_rates(r, b, threshold)
-        return fpr
-
-    def false_negative(self, r: int, b: int) -> float:
-        """Estimate false negative rate."""
-        threshold = (1/b)**(1/r) if b > 0 else 0
-        _, fnr = LSHOptimizer._estimate_rates(r, b, threshold)
-        return fnr
-
-
-def br(num_permutations: int, optimize: bool = False, 
-       threshold: float = 0.8) -> Tuple[int, int]:
-    """
-    Compute optimal b and r values for LSHRS algorithm.
-
-    This is the main interface function, providing both simple
-    and sophisticated optimization options.
+    The threshold is the Jaccard/cosine similarity where we have approximately
+    50% probability of the item being detected as similar.
 
     Args:
-        num_permutations: Total number of MinHash permutations
-        optimize: If True, use advanced optimization. If False, use sqrt heuristic.
-        threshold: Target similarity threshold (only used if optimize=True)
+        b: Number of bands
+        r: Number of rows (hash functions) per band
 
     Returns:
-        (bands, rows) tuple where bands * rows ≈ num_permutations
-
-    Examples:
-        >>> # Simple heuristic for quick setup
-        >>> b, r = br(128)
-        >>> print(f"b={b}, r={r}")  # b=11, r=11 or similar
-
-        >>> # Optimized for specific threshold
-        >>> b, r = br(128, optimize=True, threshold=0.8)
-
-        >>> # Large-scale configuration
-        >>> b, r = br(32768, optimize=True, threshold=0.8)
-        >>> print(f"b={b}, r={r}")  # b=1024, r=32
+        Approximate similarity threshold
     """
-
-    if not optimize:
-        # Simple sqrt heuristic - fast and reasonable
-        b = int(np.sqrt(num_permutations))
-
-        # Ensure we use all permutations
-        while num_permutations % b != 0 and b > 1:
-            b -= 1
-        r = num_permutations // b
-
-        return b, r
-    else:
-        # Use advanced optimizer
-        return LSHOptimizer.find_optimal_br(
-            num_permutations,
-            target_threshold=threshold,
-            optimize_for='threshold',
-            prefer_power_of_2=(num_permutations >= 1024)
-        )
+    return (1/b) ** (1/r)
 
 
-# Export main interfaces
-__all__ = ['br', 'LSHOptimizer', 'OptimalBR']
+def compute_collision_probability(similarity: float, b: int, r: int) -> float:
+    """
+    Compute the probability that two items will be detected as similar.
+
+    Args:
+        similarity: True similarity between items (0 to 1)
+        b: Number of bands
+        r: Number of rows per band
+
+    Returns:
+        Probability of collision (detection)
+    """
+    return 1 - (1 - similarity ** r) ** b
+
+
+def compute_false_rates(b: int, r: int, threshold: float) -> Tuple[float, float]:
+    """
+    Compute false positive and false negative rates for given configuration.
+
+    Args:
+        b: Number of bands
+        r: Number of rows per band
+        threshold: Similarity threshold for classification
+
+    Returns:
+        (false_positive_rate, false_negative_rate)
+    """
+    # False positive: probability of detecting items with similarity < threshold
+    def integrand_fp(s):
+        return 1 - (1 - s**r)**b
+
+    # False negative: probability of missing items with similarity >= threshold
+    def integrand_fn(s):
+        return (1 - s**r)**b
+
+    fp_rate, _ = quad(integrand_fp, 0, threshold, limit=100)
+    fn_rate, _ = quad(integrand_fn, threshold, 1, limit=100)
+
+    return fp_rate, fn_rate
+
+
+def find_optimal_br(num_perm: int, target_threshold: float, 
+                   tolerance: float = 0.05) -> Optional[Tuple[int, int]]:
+    """
+    Find optimal b and r values for a given number of permutations and target threshold.
+
+    This function searches through all valid factorizations of num_perm to find
+    the configuration that minimizes the sum of false positive and false negative rates.
+
+    Args:
+        num_perm: Total number of hash functions (b * r must equal this)
+        target_threshold: Desired similarity threshold (0 to 1)
+        tolerance: Maximum acceptable deviation from target threshold
+
+    Returns:
+        (b, r) tuple that minimizes error rates, or None if no valid config found
+    """
+    best_config = None
+    best_score = float('inf')
+
+    # Try all valid factorizations
+    for r in range(1, int(np.sqrt(num_perm)) + 1):
+        if num_perm % r != 0:
+            continue
+
+        b = num_perm // r
+
+        # Compute actual threshold for this configuration
+        actual_threshold = compute_lsh_threshold(b, r)
+
+        # Skip if threshold is too far from target
+        if abs(actual_threshold - target_threshold) > tolerance:
+            continue
+
+        # Compute error rates
+        fp_rate, fn_rate = compute_false_rates(b, r, target_threshold)
+
+        # Combined score (equal weight to FP and FN)
+        score = fp_rate + fn_rate
+
+        if score < best_score:
+            best_score = score
+            best_config = (b, r)
+
+    # Also try the reverse factorization for completeness
+    for b in range(1, int(np.sqrt(num_perm)) + 1):
+        if num_perm % b != 0:
+            continue
+
+        r = num_perm // b
+
+        actual_threshold = compute_lsh_threshold(b, r)
+
+        if abs(actual_threshold - target_threshold) > tolerance:
+            continue
+
+        fp_rate, fn_rate = compute_false_rates(b, r, target_threshold)
+        score = fp_rate + fn_rate
+
+        if score < best_score:
+            best_score = score
+            best_config = (b, r)
+
+    return best_config
+
+
+def get_optimal_config(num_perm: int, target_threshold: float = 0.5) -> Tuple[int, int]:
+    """
+    Get optimal LSH configuration for given parameters.
+
+    First checks precomputed configurations, then falls back to computing
+    optimal values if not found.
+
+    Args:
+        num_perm: Total number of hash functions
+        target_threshold: Target similarity threshold (default 0.5)
+
+    Returns:
+        (b, r) tuple for number of bands and rows per band
+    """
+    # Check precomputed configurations
+    if num_perm in PRECOMPUTED_CONFIGS:
+        # Find closest threshold
+        thresholds = list(PRECOMPUTED_CONFIGS[num_perm].keys())
+        closest_threshold = min(thresholds, key=lambda x: abs(x - target_threshold))
+
+        if abs(closest_threshold - target_threshold) <= 0.05:
+            return PRECOMPUTED_CONFIGS[num_perm][closest_threshold]
+
+    # Compute optimal configuration
+    config = find_optimal_br(num_perm, target_threshold)
+
+    if config:
+        return config
+
+    # Fallback to square root heuristic
+    b = int(np.sqrt(num_perm))
+    r = num_perm // b
+
+    # Ensure b * r = num_perm
+    while b * r != num_perm:
+        b -= 1
+        if num_perm % b == 0:
+            r = num_perm // b
+
+    return b, r
+
+
+def print_config_analysis(num_perm: int, threshold: float = 0.5):
+    """
+    Print detailed analysis of LSH configuration.
+
+    Args:
+        num_perm: Number of hash functions
+        threshold: Target similarity threshold
+    """
+    b, r = get_optimal_config(num_perm, threshold)
+    actual_threshold = compute_lsh_threshold(b, r)
+    fp_rate, fn_rate = compute_false_rates(b, r, threshold)
+
+    print(f"LSH Configuration Analysis")
+    print(f"{'='*50}")
+    print(f"Number of permutations: {num_perm}")
+    print(f"Target threshold: {threshold:.2f}")
+    print(f"\nOptimal configuration:")
+    print(f"  Bands (b): {b}")
+    print(f"  Rows per band (r): {r}")
+    print(f"\nPerformance metrics:")
+    print(f"  Actual threshold: {actual_threshold:.4f}")
+    print(f"  False positive rate: {fp_rate:.2%}")
+    print(f"  False negative rate: {fn_rate:.2%}")
+    print(f"  S-curve steepness: {b * r}")
+
+    # Show probability curve at key points
+    print(f"\nDetection probabilities:")
+    for sim in [0.3, 0.5, 0.7, 0.9]:
+        prob = compute_collision_probability(sim, b, r)
+        print(f"  Similarity {sim:.1f}: {prob:.2%} chance of detection")
+
+
+if __name__ == "__main__":
+    # Example usage
+    print("Example configurations for common hash sizes:\n")
+
+    for size in [2**12, 2**13, 2**14, 2**15, 2**16]:
+        print(f"\nHash size: {size}")
+        for threshold in [0.5, 0.8, 0.9]:
+            b, r = get_optimal_config(size, threshold)
+            actual = compute_lsh_threshold(b, r)
+            print(f"  Threshold {threshold:.1f}: b={b:4d}, r={r:3d} (actual: {actual:.3f})")
