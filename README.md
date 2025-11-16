@@ -1,24 +1,37 @@
 # LSHRS
 
+[![Python Version](https://img.shields.io/badge/python-3.13%2B-blue.svg)](https://www.python.org/downloads/)
+[![PyPI version](https://img.shields.io/pypi/v/lshrs.svg)](https://pypi.org/project/lshrs/)
+[![Deployment](https://img.shields.io/badge/deployment-inactive-lightgrey.svg)](https://github.com/mxngjxa/lshrs/deployments)
+[![Build Status](https://github.com/mxngjxa/lshrs/actions/workflows/lint.yml/badge.svg)](https://github.com/mxngjxa/lshrs/actions/workflows/lint.yml)
+[![Downloads](https://img.shields.io/pypi/dm/lshrs.svg)](https://pypi.org/project/lshrs/)
+
 Redis-backed locality-sensitive hashing toolkit that stores bucket membership in Redis while keeping the heavy vector payloads in your primary datastore.
 
+[![Commit Activity](https://img.shields.io/github/commit-activity/m/mxngjxa/lshrs.svg)](https://GitHub.com/mxngjxa/lshrs/graphs/commit-activity)
+[![Contributors](https://img.shields.io/github/contributors/mxngjxa/lshrs.svg)](https://GitHub.com/mxngjxa/lshrs/graphs/contributors/)
+[![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
+<div align="center">
+    <img src="docs/lshrs-logo.svg" alt="logo"></img>
+</div>
 
 ## Table of Contents
 
-- [Overview](#overview)
-- [Architecture Snapshot](#architecture-snapshot)
-- [Key Features](#key-features)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Ingestion Pipelines](#ingestion-pipelines)
-- [Querying Modes](#querying-modes)
-- [Persistence & Lifecycle](#persistence--lifecycle)
-- [Performance & Scaling Guidelines](#performance--scaling-guidelines)
-- [Troubleshooting](#troubleshooting)
-- [API Surface Summary](#api-surface-summary)
-- [Development & Testing](#development--testing)
-- [License](#license)
+- [Overview](##overview)
+- [Architecture Snapshot](##architecture-snapshot)
+- [Key Features](##key-features)
+- [Installation](##installation)
+- [Quick Start](##quick-start)
+- [Ingestion Pipelines](##ingestion-pipelines)
+- [Querying Modes](##querying-modes)
+- [Persistence & Lifecycle](##persistence--lifecycle)
+- [Performance & Scaling Guidelines](##performance--scaling-guidelines)
+- [Troubleshooting](##troubleshooting)
+- [API Surface Summary](##api-surface-summary)
+- [Development & Testing](##development--testing)
+- [License](##license)
 
 ## Overview
 
@@ -50,18 +63,24 @@ The out-of-the-box configuration chooses bands/rows automatically, pipelines Red
 
 ## Installation
 
-### PyPI (coming soon)
+### PyPI
 
 ```bash
-pip install lshrs
+uv install lshrs
+```
+
+Or, if installing for a postgres database:
+
+```bash
+uv install 'lshrs[postgres]'
 ```
 
 ### From source checkout
 
 ```bash
-git clone https://github.com/username/lshrs.git
+git clone https://github.com/mxngjxa/lshrs.git
 cd lshrs
-pip install -e ".[dev]"
+uv sync -e ".[dev]"
 ```
 
 > [!NOTE]
@@ -69,14 +88,14 @@ pip install -e ".[dev]"
 
 ### Optional extras
 
-- PostgreSQL streaming requires [`psycopg`](https://www.psycopg.org/). Install with `pip install lshrs[postgres]` or `pip install psycopg[binary]`.
-- Parquet ingestion requires [`pyarrow`](https://arrow.apache.org/). Install with `pip install pyarrow` or include it in your extras.
+- PostgreSQL streaming requires [`psycopg`](https://www.psycopg.org/). Install with `uv add 'lshrs[postgres]'` or `uv add 'psycopg[binary]'`.
+- Parquet ingestion requires [`pyarrow`](https://arrow.apache.org/). Install with `uv add pyarrow` or include it in your extras.
 
 ## Quick Start
 
 ```python
 import numpy as np
-from lshrs import LSHRS
+from lshrs import lshrs
 
 def fetch_vectors(indices: list[int]) -> np.ndarray:
     # Replace with your vector store retrieval (PostgreSQL, disk, object store, etc.)
@@ -224,7 +243,7 @@ Supporting helpers:
 1. Install development dependencies:
 
    ```bash
-   pip install -e ".[dev]"
+   uv add -e ".[dev]"
    ```
 
 2. Run the test suite:
