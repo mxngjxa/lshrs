@@ -2,7 +2,7 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.13%2B-blue.svg)](https://www.python.org/downloads/)
 [![PyPI version](https://img.shields.io/pypi/v/lshrs.svg)](https://pypi.org/project/lshrs/)
-[![Publish Package Update to PyPI](https://github.com/mxngjxa/lshrs/actions/workflows/cd.yml/badge.svg)](https://github.com/mxngjxa/lshrs/actions/workflows/cd.yml)
+[![PyPI](https://github.com/mxngjxa/lshrs/actions/workflows/cd.yml/badge.svg)](https://github.com/mxngjxa/lshrs/actions/workflows/cd.yml)
 [![Testing and Linting](https://github.com/mxngjxa/lshrs/actions/workflows/ci.yml/badge.svg)](https://github.com/mxngjxa/lshrs/actions/workflows/ci.yml)
 [![Downloads](https://img.shields.io/pypi/dm/lshrs.svg)](https://pypi.org/project/lshrs/)
 
