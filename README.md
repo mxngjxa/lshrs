@@ -4,7 +4,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/lshrs.svg)](https://pypi.org/project/lshrs/)
 [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![Ty](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/tiangolo/ty/main/assets/badge/v1.json)](https://github.com/tiangolo/ty)
+[![ty](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ty/main/assets/badge/v0.json)](https://github.com/astral-sh/ty)
 
 Redis-backed locality-sensitive hashing toolkit that stores bucket membership in Redis while keeping the heavy vector payloads in your primary datastore.
 
