@@ -1,3 +1,4 @@
+# .github/workflows/ci.yml
 # Basic CI setup: Lint with ruff, run tests with pytest
 name: Testing and Linting
 
@@ -16,5 +17,35 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+
       - uses: astral-sh/setup-uv@v6
-      - run: uv run --dev pytest
+
+      - name: Install project Python
+        run: uv python install
+
+      - name: Lint with ruff
+        run: uv run --dev ruff check .
+
+      - name: Run pytest
+        run: uv run --dev pytest
+
+  # build-and-smoke:
+  #   name: Build and smoke test
+  #   runs-on: ubuntu-latest
+  #   needs: test
+  #   steps:
+  #     - uses: actions/checkout@v5
+
+  #     - uses: astral-sh/setup-uv@v6
+
+  #     - name: Install project Python
+  #       run: uv python install
+
+  #     - name: Build
+  #       run: uv build
+
+  #     - name: Smoke test (wheel)
+  #       run: uv run --isolated --no-project --with dist/*.whl tests/smoke_test.py
+
+  #     - name: Smoke test (source distribution)
+  #       run: uv run --isolated --no-project --with dist/*.tar.gz tests/smoke_test.py
