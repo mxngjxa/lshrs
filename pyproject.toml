@@ -1,6 +1,6 @@
 [project]
 name = "lshrs"
-version = "0.1.1a1"
+version = "0.1.1a2"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -18,6 +18,7 @@ postgres = [
 [dependency-groups]
 dev = [
     "pytest>=9.0.1",
+    "pytest-smoke>=0.10.0",
     "ruff>=0.14.5",
     "ty>=0.0.1a26",
 ]
