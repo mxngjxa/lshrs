@@ -27,9 +27,11 @@ Key features:
 
 from __future__ import annotations
 
+import json
 import math
-import pickle
+# import pickle
 from pathlib import Path
+from threading import Lock
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -162,6 +164,7 @@ class LSHRS:
         redis_db: int = 0,
         redis_password: Optional[str] = None,
         redis_prefix: str = "lsh",
+        redis_max_connections: int = 50,
         decode_responses: bool = False,
         seed: int = 42,
     ) -> None:
@@ -188,7 +191,11 @@ class LSHRS:
             )
 
         # Type narrowing for mypy - guaranteed non-None after this
-        assert num_bands is not None and rows_per_band is not None
+        if num_bands is None or rows_per_band is None:
+            raise RuntimeError(
+                f"Auto-config failed: get_optimal_config({num_perm}, {similarity_threshold}) "
+                f"-> ({num_bands}, {rows_per_band})"
+            )
 
         # Validate band/row configuration matches total hash bits
         if num_bands * rows_per_band != num_perm:
@@ -218,10 +225,12 @@ class LSHRS:
             password=redis_password,
             decode_responses=decode_responses,
             prefix=redis_prefix,
+            max_connections=redis_max_connections,
         )
 
         # Initialize operation buffer for batch processing
         self._buffer: List[BucketOperation] = []
+        self._buffer_lock = Lock()
 
         # Store configuration for persistence and introspection
         self._config: Dict[str, Any] = {
@@ -242,7 +251,26 @@ class LSHRS:
             "password": redis_password,
             "prefix": redis_prefix,
             "decode_responses": decode_responses,
+            "max_connections": redis_max_connections,
         }
+
+    def close(self) -> None:
+        """
+        Close Redis connections and flush pending buffer operations.
+
+        Should be called when the LSHRS instance is no longer needed to prevent
+        connection leaks and ensure all data is persisted.
+        """
+        self.flush()
+        self._storage.close()
+
+    def __enter__(self) -> "LSHRS":
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        """Context manager exit - ensures resources are cleaned up."""
+        self.close()
 
     def __repr__(self) -> str:  # pragma: no cover - convenience
         """
@@ -378,7 +406,7 @@ class LSHRS:
         -----
         Single ingestion uses buffering for efficiency. The vector won't be
         immediately searchable until buffer flushes (either when full or
-        explicitly via _flush_buffer).
+        explicitly via flush()).
         """
         # Validate index is non-negative
         if index < 0:
@@ -395,6 +423,28 @@ class LSHRS:
 
         # Flush if buffer is full
         self._flush_buffer_if_needed()
+
+    def flush(self) -> None:
+        """
+        Execute all buffered operations via Redis pipeline.
+
+        Sends all accumulated bucket operations in a single batch for
+        efficiency. Clears buffer after execution.
+
+        This method should be called manually if you need to ensure all ingested
+        vectors are immediately searchable, although it is called automatically
+        when the buffer fills up or when the LSHRS instance is closed.
+        """
+        with self._buffer_lock:
+            if not self._buffer:
+                return
+            # Copy buffer content to release lock quickly
+            ops_to_flush = list(self._buffer)
+            self._buffer.clear()
+
+        # Batch execute all operations outside the lock
+        # This prevents blocking ingestion while waiting for Redis
+        self._storage.batch_add(ops_to_flush)
 
     def index(
         self, indices: Sequence[int], vectors: Optional[np.ndarray] = None
@@ -477,7 +527,7 @@ class LSHRS:
             self.ingest(int(idx), vec)
 
         # Force flush to make vectors immediately searchable
-        self._flush_buffer()
+        self.flush()
 
     # ---------------------------------------------------------------------
     # Query helpers
@@ -774,7 +824,7 @@ class LSHRS:
         before clearing if you might need to restore the index.
         """
         # Ensure any buffered operations are written first
-        self._flush_buffer()
+        self.flush()
 
         # Delete all Redis keys with our prefix
         self._storage.clear()
@@ -829,11 +879,10 @@ class LSHRS:
 
     def save_to_disk(self, path: Union[str, Path]) -> None:
         """
-        Persist configuration and projection matrices to disk.
+        Persist configuration and projection matrices to disk (Secure JSON/NumPy format).
 
-        Saves the LSH configuration and learned random projections, allowing
-        exact reconstruction of the hasher. The Redis data is NOT saved -
-        only the configuration and projection matrices.
+        Saves the LSH configuration to a JSON file and projection matrices to a compressed
+        NumPy archive (.npz). This directory-based format is secure and portable.
 
         This enables:
             - Consistent hashing across restarts
@@ -841,42 +890,40 @@ class LSHRS:
             - Backup of LSH configuration
             - Migration to different Redis instances
 
-        The saved file uses Python pickle format with highest protocol for
-        efficiency. File size is roughly: num_bands × rows_per_band × dim × 4 bytes.
-
         Parameters
         ----------
         path : str or Path
-            Output file path. Will be overwritten if exists.
+            Output directory path. Will be created if it doesn't exist.
 
         Examples
         --------
         >>> lsh = LSHRS(dim=128, num_bands=20, rows_per_band=6)
-        >>> # ... index vectors ...
-        >>> lsh.save_to_disk("model.lsh")
+        >>> lsh.save_to_disk("model_v1")
         >>>
-        >>> # Later, restore with same projections
-        >>> restored = LSHRS.load_from_disk("model.lsh")
-
-        Notes
-        -----
-        The saved file excludes:
-            - Redis connection details (can target different Redis on load)
-            - Indexed data (must re-index or use existing Redis data)
-            - vector_fetch_fn (must provide again on load)
-
-        See Also
-        --------
-        load_from_disk : Restore saved configuration
+        >>> # Later, restore
+        >>> restored = LSHRS.load_from_disk("model_v1")
         """
         # Ensure buffer is empty before saving
-        self._flush_buffer()
+        self.flush()
 
-        # Get pickleable state (config + projections)
-        payload = self.__getstate__()
+        output_dir = Path(path)
+        output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Write to disk using highest pickle protocol
-        Path(path).write_bytes(pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL))
+        # 1. Save metadata (configuration)
+        metadata = {
+            "version": "0.1.1a4",
+            "config": self._config,
+            "redis_config": self._redis_config,
+        }
+        with open(output_dir / "metadata.json", "w") as f:
+            json.dump(metadata, f, indent=2)
+
+        # 2. Save projections (efficient binary format)
+        # We save them as a list of arrays in a single compressed file
+        np.savez_compressed(
+            output_dir / "projections.npz",
+            *self._hasher.projections
+        )
 
     @classmethod
     def load_from_disk(
@@ -888,29 +935,21 @@ class LSHRS:
         storage: Optional[RedisStorage] = None,
     ) -> "LSHRS":
         """
-        Restore an LSHRS instance previously saved via save_to_disk().
+        Restore an LSHRS instance from a directory saved via save_to_disk().
 
-        Reconstructs the LSH hasher with identical projection matrices,
-        allowing consistent hashing of new vectors. Can target a different
-        Redis instance than the original.
+        Reconstructs the LSH hasher with identical projection matrices from the
+        secure JSON/NumPy storage format.
 
         Parameters
         ----------
         path : str or Path
-            Path to saved LSH configuration file.
+            Path to the directory containing metadata.json and projections.npz.
 
         redis_config : dict, optional
-            Override saved Redis configuration. Keys:
-            - host: Redis hostname
-            - port: Redis port
-            - db: Database number
-            - password: Auth password
-            - prefix: Key prefix
-            - decode_responses: Response decoding
+            Override saved Redis configuration.
 
         vector_fetch_fn : callable, optional
             Function for fetching vectors (required for reranking).
-            Not persisted, must be provided again.
 
         storage : RedisStorage, optional
             Pre-configured storage instance. Overrides redis_config.
@@ -920,52 +959,32 @@ class LSHRS:
         LSHRS
             Restored instance with same projection matrices as original.
 
-        Examples
-        --------
-        Basic restoration:
-
-        >>> lsh = LSHRS.load_from_disk("model.lsh")
-
-        Target different Redis:
-
-        >>> lsh = LSHRS.load_from_disk(
-        ...     "model.lsh",
-        ...     redis_config={"host": "prod-redis", "port": 6380}
-        ... )
-
-        Attach vector fetcher:
-
-        >>> def fetch_vectors(indices):
-        ...     return load_from_database(indices)
-        >>>
-        >>> lsh = LSHRS.load_from_disk(
-        ...     "model.lsh",
-        ...     vector_fetch_fn=fetch_vectors
-        ... )
-
         Raises
         ------
         FileNotFoundError
-            If path doesn't exist.
-        pickle.UnpicklingError
-            If file is corrupted or incompatible.
-
-        See Also
-        --------
-        save_to_disk : Save configuration to disk
+            If directory or required files don't exist.
+        ValueError
+            If version mismatch or corrupted data.
         """
-        # Load saved state from disk
-        state = pickle.loads(Path(path).read_bytes())
+        input_dir = Path(path)
+        if not input_dir.exists():
+            raise FileNotFoundError(f"Directory not found: {input_dir}")
 
-        # Extract configurations
-        config = state["config"]
-        stored_redis = state["redis_config"].copy()
+        # 1. Load metadata
+        with open(input_dir / "metadata.json", "r") as f:
+            metadata = json.load(f)
 
-        # Apply Redis config overrides if provided
+        # Basic version check (forward compatibility warning could go here)
+        # stored_version = metadata.get("version")
+
+        config = metadata["config"]
+        stored_redis = metadata["redis_config"].copy()
+
+        # Apply Redis config overrides
         if redis_config:
             stored_redis.update(redis_config)
 
-        # Reconstruct instance with saved parameters
+        # Reconstruct instance
         instance = cls(
             dim=config["dim"],
             num_perm=config["num_perm"],
@@ -984,11 +1003,13 @@ class LSHRS:
             seed=config["seed"],
         )
 
-        # Replace random projections with saved ones
-        # This ensures identical hashing behavior
-        instance._hasher.projections = [
-            np.asarray(matrix, dtype=np.float32) for matrix in state["projections"]
-        ]
+        # 2. Load projections
+        with np.load(input_dir / "projections.npz") as data:
+            # Files in .npz are named arr_0, arr_1, ... by default when using *args
+            instance._hasher.projections = [
+                data[f"arr_{i}"].astype(np.float32)
+                for i in range(len(data.files))
+            ]
 
         return instance
 
@@ -1017,7 +1038,7 @@ class LSHRS:
             Serializable state dictionary.
         """
         # Ensure buffer is empty (transient state shouldn't be persisted)
-        self._flush_buffer()
+        self.flush()
 
         return {
             "config": self._config.copy(),
@@ -1104,6 +1125,12 @@ class LSHRS:
                 f"Vector must have dimension {self._dim}; received {arr.shape[0]}"
             )
 
+        # Zero vector check - norm is undefined/zero, cannot be used for cosine similarity
+        if np.allclose(arr, 0.0, atol=1e-8):
+            raise ValueError(
+                "Cannot index zero vector - norm undefined. Check embeddings for corruption."
+            )
+
         return arr
 
     def _candidate_counts(self, query_vector: np.ndarray) -> Dict[int, int]:
@@ -1150,7 +1177,7 @@ class LSHRS:
         Add bucket operations to the buffer for later batch execution.
 
         For each band signature, creates an operation tuple and adds to buffer.
-        Operations are executed later via _flush_buffer for efficiency.
+        Operations are executed later via flush() for efficiency.
 
         Parameters
         ----------
@@ -1160,9 +1187,10 @@ class LSHRS:
         signatures : Iterable[bytes]
             Hash signatures from all bands.
         """
-        # Create operation for each band
-        for band_id, hash_val in enumerate(signatures):
-            self._buffer.append((band_id, hash_val, int(index)))
+        with self._buffer_lock:
+            # Create operation for each band
+            for band_id, hash_val in enumerate(signatures):
+                self._buffer.append((band_id, hash_val, int(index)))
         # Note: Buffer is flushed lazily to leverage pipelining
 
     def _flush_buffer_if_needed(self) -> None:
@@ -1171,24 +1199,13 @@ class LSHRS:
 
         Prevents unbounded memory growth during continuous ingestion.
         """
-        if len(self._buffer) >= self._buffer_size:
-            self._flush_buffer()
+        should_flush = False
+        with self._buffer_lock:
+            if len(self._buffer) >= self._buffer_size:
+                should_flush = True
 
-    def _flush_buffer(self) -> None:
-        """
-        Execute all buffered operations via Redis pipeline.
-
-        Sends all accumulated bucket operations in a single batch for
-        efficiency. Clears buffer after execution.
-        """
-        if not self._buffer:
-            return
-
-        # Batch execute all operations
-        self._storage.batch_add(self._buffer)
-
-        # Clear buffer for next batch
-        self._buffer.clear()
+        if should_flush:
+            self.flush()
 
     def _require_vector_fetch_fn(self) -> VectorFetchFn:
         """

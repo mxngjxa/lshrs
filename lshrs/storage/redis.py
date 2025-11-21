@@ -92,6 +92,7 @@ class RedisStorage:
         password: str | None = None,
         decode_responses: bool = False,
         prefix: str = "lsh",
+        max_connections: int = 50,
     ) -> None:
         """
         Initialize Redis connection for LSH bucket storage.
@@ -113,16 +114,19 @@ class RedisStorage:
             prefix: Namespace prefix for all keys.
                    Use different prefixes for different LSH indices or apps.
                    Must not contain colons (:) to avoid key parsing issues.
+            max_connections: Maximum number of connections in the pool.
+                           Default is 50.
 
         Example:
             >>> # Local development
             >>> storage = RedisStorage()
             >>>
-            >>> # Production with auth
+            >>> # Production with auth and pooling
             >>> storage = RedisStorage(
             ...     host='prod-redis.example.com',
             ...     password='strong_password',
-            ...     prefix='prod_lsh'
+            ...     prefix='prod_lsh',
+            ...     max_connections=100
             ... )
             >>>
             >>> # Multi-tenant setup
@@ -136,15 +140,31 @@ class RedisStorage:
         # Store prefix for key generation
         self.prefix = prefix
 
-        # Initialize redis-py client
-        # Connection is lazy - doesn't actually connect until first operation
-        self._client = redis.Redis(
+        # Initialize redis-py connection pool
+        # Using a pool is more efficient for multi-threaded applications
+        self._pool = redis.ConnectionPool(
             host=host,
             port=port,
             db=db,
             password=password,
             decode_responses=decode_responses,
+            max_connections=max_connections,
+            socket_connect_timeout=5,
+            socket_timeout=5,
+            retry_on_timeout=True,
         )
+
+        # Initialize client using the pool
+        self._client = redis.Redis(connection_pool=self._pool)
+
+    def close(self) -> None:
+        """Close the connection pool and release resources."""
+        if hasattr(self, "_pool"):
+            self._pool.disconnect()
+
+    def __del__(self) -> None:
+        """Ensure resources are released on garbage collection."""
+        self.close()
 
     @property
     def client(self) -> redis.Redis:  # pragma: no cover - simple accessor
