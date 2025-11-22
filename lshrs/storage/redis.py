@@ -158,41 +158,29 @@ class RedisStorage:
         self._client = redis.Redis(connection_pool=self._pool)
 
     def close(self) -> None:
-        """Close the connection pool and release resources."""
+        """
+        Close the Redis connection pool and release network resources.
+        
+        If a connection pool was created, disconnects all pooled connections; calling this when no pool exists is a no-op.
+        """
         if hasattr(self, "_pool"):
             self._pool.disconnect()
 
     def __del__(self) -> None:
-        """Ensure resources are released on garbage collection."""
+        """
+        Ensure the Redis connection pool and client are closed when the RedisStorage instance is garbage-collected.
+        
+        Calls close() to release underlying network and pool resources.
+        """
         self.close()
 
     @property
     def client(self) -> redis.Redis:  # pragma: no cover - simple accessor
         """
-        Expose the underlying redis-py client for advanced operations.
-
-        Provides direct access to the Redis client for operations not wrapped
-        by this class. Use with caution - direct client access bypasses the
-        key naming conventions and safety checks.
-
+        Expose the underlying redis-py client for advanced or unwrapped operations.
+        
         Returns:
-            The underlying redis.Redis client instance.
-
-        Use cases:
-            - Custom Redis commands not provided by this wrapper
-            - Performance monitoring (INFO commands)
-            - Transaction management beyond simple pipelines
-            - Pub/sub operations
-
-        Example:
-            >>> storage = RedisStorage()
-            >>> # Get Redis server info
-            >>> info = storage.client.info('memory')
-            >>> print(f"Used memory: {info['used_memory_human']}")
-            >>>
-            >>> # Execute custom command
-            >>> storage.client.execute_command('PING')
-            b'PONG'
+            redis.Redis: The internal Redis client instance used by this storage backend.
         """
         return self._client
 
