@@ -12,11 +12,27 @@ from lshrs.storage.redis import RedisStorage
 
 class MockStorage(RedisStorage):
     def __init__(self):
+        """
+        Initialize mock storage state for testing.
+        
+        Creates and initializes internal counters and collections used to record batched operations and a threading.Lock to synchronize access across threads:
+        - batch_add_calls: counts how many times batch_add was invoked.
+        - operations: list collecting operations passed to batch_add.
+        - lock: threading.Lock protecting shared state.
+        """
         self.batch_add_calls = 0
         self.operations = []
         self.lock = threading.Lock()
 
     def batch_add(self, operations: List[Any]) -> None:
+        """
+        Record a batch of storage operations in a thread-safe in-memory mock and simulate IO latency.
+        
+        Acquires the instance lock, increments the internal batch_add_calls counter, appends the given operations to the stored operations list, and pauses briefly to simulate I/O delay.
+        
+        Parameters:
+            operations (List[Any]): The sequence of operations to append to the mock storage's internal operations list.
+        """
         with self.lock:
             self.batch_add_calls += 1
             self.operations.extend(operations)
@@ -24,12 +40,35 @@ class MockStorage(RedisStorage):
             time.sleep(0.001)
             
     def get_bucket(self, band_id: int, hash_val: bytes):
+        """
+        Return the set of stored item indices for the given band and hash.
+        
+        Parameters:
+            band_id (int): The band identifier within the LSH structure.
+            hash_val (bytes): The bucket hash value for which to retrieve indices.
+        
+        Returns:
+            set: A set containing the indices (ints) of items stored in the specified bucket; empty if the bucket has no entries.
+        """
         return set()
         
     def remove_indices(self, indices):
+        """
+        Remove the given item indices from storage.
+        
+        In this mock implementation the method is a no-op (indices are not persisted or removed).
+        
+        Parameters:
+            indices (Iterable[int]): Iterable of integer indices to remove from storage.
+        """
         pass
         
     def clear(self):
+        """
+        Clear mock storage state.
+        
+        This mock implementation performs no action; the method exists for API compatibility with the real storage used by tests.
+        """
         pass
 
 
@@ -54,6 +93,14 @@ def test_concurrent_ingestion():
     )
     
     def worker(thread_id: int):
+        """
+        Ingests a contiguous block of randomly generated vectors into the shared LSH instance.
+        
+        Generates `vectors_per_thread` random float32 vectors of dimension `dim` and calls `lsh.ingest` for each with sequential indices starting at `thread_id * vectors_per_thread`.
+        
+        Parameters:
+            thread_id (int): Zero-based index of the worker thread; determines the starting vector index for this worker.
+        """
         start_idx = thread_id * vectors_per_thread
         for i in range(vectors_per_thread):
             idx = start_idx + i
@@ -88,7 +135,9 @@ def test_concurrent_ingestion():
 
 def test_flush_buffer_thread_safety():
     """
-    Test specifically that flush_buffer handles concurrent access correctly.
+    Verifies that concurrently invoking flush causes each buffered item to be flushed exactly once across all bands.
+    
+    Populates the LSHRS buffer with items, starts multiple threads that call flush simultaneously, and asserts the storage received num_items × num_bands operations (ensuring no duplicate flushes).
     """
     dim = 64
     storage = MockStorage()
@@ -108,6 +157,11 @@ def test_flush_buffer_thread_safety():
         
     # Try to flush from multiple threads simultaneously
     def flusher():
+        """
+        Flush the shared LSHRS instance's buffered items to storage.
+        
+        Wrapper used by threads to invoke a flush operation on the module-scoped `lsh` instance.
+        """
         lsh.flush()
         
     threads = [threading.Thread(target=flusher) for _ in range(5)]

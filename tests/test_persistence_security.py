@@ -11,10 +11,26 @@ from lshrs.storage.redis import RedisStorage
 
 class MockStorage(RedisStorage):
     def __init__(self):
+        """
+        Initialize a MockStorage instance used in tests.
+        
+        This constructor performs no real initialization or side effects (no network, disk, or Redis setup), allowing the object to act as a lightweight stand-in for RedisStorage in unit tests.
+        """
         pass
     def batch_add(self, ops):
+        """
+        No-op placeholder that accepts a sequence of storage operations and ignores them (used in tests).
+        
+        Parameters:
+            ops (Iterable): An iterable of storage operation records to be applied; the mock implementation does not persist or modify any state.
+        """
         pass
     def clear(self):
+        """
+        No-op placeholder that represents clearing stored data for the mock storage used in tests.
+        
+        This method intentionally does nothing — it exists to satisfy the storage interface without performing any I/O or state changes.
+        """
         pass
 
 
@@ -70,7 +86,11 @@ def test_load_missing_directory_raises(tmp_path):
 
 
 def test_load_missing_files_raises(tmp_path):
-    """Test that loading from a directory missing required files raises error."""
+    """
+    Verify that loading an index from a directory with required files missing raises FileNotFoundError.
+    
+    Specifically checks two failure modes: when the directory lacks metadata.json, and when metadata.json exists but projections.npz is missing.
+    """
     save_path = tmp_path / "bad_index"
     save_path.mkdir()
     
