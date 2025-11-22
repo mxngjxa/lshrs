@@ -14,6 +14,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -21,7 +22,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
 
       - name: Install project Python
-        run: uv python install
+        run: uv python install ${{ matrix.python-version }}
 
       - name: Lint with ruff
         run: uv run --dev ruff check .
