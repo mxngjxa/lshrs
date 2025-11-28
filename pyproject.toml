@@ -1,6 +1,6 @@
 [project]
 name = "lshrs"
-version = "0.1.1a4"
+version = "0.1.1b1"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"

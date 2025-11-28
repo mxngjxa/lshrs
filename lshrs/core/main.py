@@ -484,7 +484,6 @@ class LSHRS:
         >>> def fetch_from_db(ids):
         ...     # Query database for vectors
         ...     return load_vectors(ids)
-        >>>
         >>> lsh = LSHRS(dim=128, vector_fetch_fn=fetch_from_db)
         >>> lsh.index([100, 101, 102])  # Vectors fetched automatically
 
