@@ -92,6 +92,7 @@ class RedisStorage:
         password: str | None = None,
         decode_responses: bool = False,
         prefix: str = "lsh",
+        max_connections: int = 50,
     ) -> None:
         """
         Initialize Redis connection for LSH bucket storage.
@@ -113,16 +114,19 @@ class RedisStorage:
             prefix: Namespace prefix for all keys.
                    Use different prefixes for different LSH indices or apps.
                    Must not contain colons (:) to avoid key parsing issues.
+            max_connections: Maximum number of connections in the pool.
+                           Default is 50.
 
         Example:
             >>> # Local development
             >>> storage = RedisStorage()
             >>>
-            >>> # Production with auth
+            >>> # Production with auth and pooling
             >>> storage = RedisStorage(
             ...     host='prod-redis.example.com',
             ...     password='strong_password',
-            ...     prefix='prod_lsh'
+            ...     prefix='prod_lsh',
+            ...     max_connections=100
             ... )
             >>>
             >>> # Multi-tenant setup
@@ -136,43 +140,47 @@ class RedisStorage:
         # Store prefix for key generation
         self.prefix = prefix
 
-        # Initialize redis-py client
-        # Connection is lazy - doesn't actually connect until first operation
-        self._client = redis.Redis(
+        # Initialize redis-py connection pool
+        # Using a pool is more efficient for multi-threaded applications
+        self._pool = redis.ConnectionPool(
             host=host,
             port=port,
             db=db,
             password=password,
             decode_responses=decode_responses,
+            max_connections=max_connections,
+            socket_connect_timeout=5,
+            socket_timeout=5,
+            retry_on_timeout=True,
         )
+
+        # Initialize client using the pool
+        self._client = redis.Redis(connection_pool=self._pool)
+
+    def close(self) -> None:
+        """
+        Close the Redis connection pool and release network resources.
+
+        If a connection pool was created, disconnects all pooled connections; calling this when no pool exists is a no-op.
+        """
+        if hasattr(self, "_pool"):
+            self._pool.disconnect()
+
+    def __del__(self) -> None:
+        """
+        Ensure the Redis connection pool and client are closed when the RedisStorage instance is garbage-collected.
+
+        Calls close() to release underlying network and pool resources.
+        """
+        self.close()
 
     @property
     def client(self) -> redis.Redis:  # pragma: no cover - simple accessor
         """
-        Expose the underlying redis-py client for advanced operations.
-
-        Provides direct access to the Redis client for operations not wrapped
-        by this class. Use with caution - direct client access bypasses the
-        key naming conventions and safety checks.
+        Expose the underlying redis-py client for advanced or unwrapped operations.
 
         Returns:
-            The underlying redis.Redis client instance.
-
-        Use cases:
-            - Custom Redis commands not provided by this wrapper
-            - Performance monitoring (INFO commands)
-            - Transaction management beyond simple pipelines
-            - Pub/sub operations
-
-        Example:
-            >>> storage = RedisStorage()
-            >>> # Get Redis server info
-            >>> info = storage.client.info('memory')
-            >>> print(f"Used memory: {info['used_memory_human']}")
-            >>>
-            >>> # Execute custom command
-            >>> storage.client.execute_command('PING')
-            b'PONG'
+            redis.Redis: The internal Redis client instance used by this storage backend.
         """
         return self._client
 

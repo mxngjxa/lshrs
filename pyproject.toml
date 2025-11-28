@@ -1,11 +1,11 @@
 [project]
 name = "lshrs"
-version = "0.1.1a4"
+version = "0.1.1b1"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.10"
 dependencies = [
-    "numpy>=2.3.4",
+    "numpy>=1.24",
     "scipy>=1.14.1",
     "redis>=7.0.1",
 ]

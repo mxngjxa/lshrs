@@ -198,3 +198,25 @@ def test_get_optimal_config_prefers_precomputed_entries():
 
     assert actual_threshold == pytest.approx((1 / 64) ** (1 / 64))
     assert abs(actual_threshold - 0.9) < 0.05
+
+
+def test_zero_vector_rejected_on_ingest():
+    from lshrs import LSHRS
+
+    lsh = LSHRS(dim=4, num_bands=2, rows_per_band=2, num_perm=4)
+
+    zero_vec = np.zeros(4, dtype=np.float32)
+
+    with pytest.raises(ValueError, match="Cannot index zero vector"):
+        lsh.ingest(0, zero_vec)
+
+
+def test_zero_vector_rejected_on_query():
+    from lshrs import LSHRS
+
+    lsh = LSHRS(dim=4, num_bands=2, rows_per_band=2, num_perm=4)
+
+    zero_vec = np.zeros(4, dtype=np.float32)
+
+    with pytest.raises(ValueError, match="Cannot index zero vector"):
+        lsh.query(zero_vec)
