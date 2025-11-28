@@ -36,8 +36,10 @@ def test_redis_storage_uses_connection_pool():
 def test_lshrs_passes_max_connections():
     """Test that LSHRS passes max_connections to RedisStorage."""
     with patch("lshrs.core.main.RedisStorage") as mock_storage_cls:
+        LSHRS(dim=128, redis_max_connections=75)
         
         # Check RedisStorage was called with max_connections
+        mock_storage_cls.assert_called_once()
         _, kwargs = mock_storage_cls.call_args
         assert kwargs["max_connections"] == 75
 

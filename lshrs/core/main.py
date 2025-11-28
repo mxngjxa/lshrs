@@ -28,6 +28,7 @@ Key features:
 from __future__ import annotations
 
 import json
+import logging
 import math
 # import pickle
 from pathlib import Path
@@ -40,6 +41,8 @@ from lshrs.hash.lsh import LSHHasher
 from lshrs.storage.redis import BucketOperation, RedisStorage
 from lshrs.utils.br import get_optimal_config
 from lshrs.utils.similarity import top_k_cosine
+
+logger = logging.getLogger(__name__)
 
 # Type aliases for clarity and documentation
 # Function that fetches vectors given their indices (for reranking)
@@ -444,7 +447,14 @@ class LSHRS:
 
         # Batch execute all operations outside the lock
         # This prevents blocking ingestion while waiting for Redis
-        self._storage.batch_add(ops_to_flush)
+        try:
+            self._storage.batch_add(ops_to_flush)
+        except Exception as e:
+            logger.error(f"Failed to flush buffer to Redis: {e}")
+            with self._buffer_lock:
+                # Restore operations to the front of the buffer
+                self._buffer[0:0] = ops_to_flush
+            raise
 
     def index(
         self, indices: Sequence[int], vectors: Optional[np.ndarray] = None
