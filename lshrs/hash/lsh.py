@@ -46,8 +46,7 @@ class LSHHasher:
         num_bands: Number of independent hash bands (separate hash tables)
         rows_per_band: Number of hash bits per band (hyperplane projections)
         dim: Expected dimensionality of input vectors
-        projections: List of random projection matrices, one per band
-                     Each matrix has shape (rows_per_band, dim)
+        projection_stack: 3D array (num_bands, rows_per_band, dim) for batch processing
     """
 
     def __init__(
@@ -76,7 +75,6 @@ class LSHHasher:
             >>> # For 128-dim vectors, use 20 bands × 5 rows = 100 hash bits total
             >>> hasher = LSHHasher(num_bands=20, rows_per_band=5, dim=128, seed=42)
         """
-        # Validate parameters
         if num_bands <= 0:
             raise ValueError("num_bands must be > 0")
         if rows_per_band <= 0:
@@ -84,19 +82,16 @@ class LSHHasher:
         if dim <= 0:
             raise ValueError("dim must be > 0")
 
-        # Store configuration
         self.num_bands = num_bands
         self.rows_per_band = rows_per_band
         self.dim = dim
+        self.bytes_per_band = (rows_per_band + 7) // 8
 
-        # Generate random projection matrices (one per band)
-        # Each matrix projects dim-dimensional vectors to rows_per_band dimensions
-        # Using standard normal distribution (mean=0, std=1) is theoretically sound
+        # Stack all projection matrices into a single 3D array for vectorized operations
         rng = np.random.default_rng(seed)
-        self.projections = [
-            rng.standard_normal((rows_per_band, dim)).astype(np.float32)
-            for _ in range(num_bands)
-        ]
+        self.projection_stack = rng.standard_normal(
+            (num_bands, rows_per_band, dim)
+        ).astype(np.float32)
 
     def hash_vector(self, vector: np.ndarray) -> HashSignatures:
         """
@@ -104,11 +99,8 @@ class LSHHasher:
 
         Process:
             1. Validate vector shape and convert to float32
-            2. For each band:
-               a. Project vector using random hyperplanes
-               b. Convert projections to binary (>0 → 1, ≤0 → 0)
-               c. Pack bits into bytes for compact storage
-            3. Return all band signatures wrapped in HashSignatures
+            2. Project vector against all bands simultaneously
+            3. Threshold and pack bits in parallel
 
         Args:
             vector: Input vector to hash. Can be any array-like of length `dim`.
@@ -130,12 +122,18 @@ class LSHHasher:
             >>> len(sigs.bands[0])  # 1 byte per band (8 bits packed)
             1
         """
-        # Validate and normalize input vector
         vec = self._validate_vector(vector)
 
-        # Hash vector with each band's projection matrix
+        # Vectorized projection: (num_bands, rows_per_band, dim) @ (dim,) → (num_bands, rows_per_band)
+        projected = np.dot(self.projection_stack, vec)
+
+        # Binary threshold and pack for all bands
+        binary = projected > 0
+
+        # Pack each band's bits into bytes
         bands = [
-            self._project_and_pack(projection, vec) for projection in self.projections
+            np.packbits(binary[i].astype(np.uint8), bitorder="little").tobytes()
+            for i in range(self.num_bands)
         ]
 
         return HashSignatures(bands)
@@ -144,9 +142,8 @@ class LSHHasher:
         """
         Hash a batch of vectors efficiently.
 
-        This method validates the entire batch upfront, then hashes each vector
-        individually. For very large batches, consider processing in chunks to
-        manage memory usage.
+        This method processes all vectors and bands simultaneously using
+        vectorized operations, avoiding per-vector Python loops.
 
         Args:
             vectors: 2D array of shape (num_vectors, dim).
@@ -165,7 +162,6 @@ class LSHHasher:
             >>> len(signatures)  # 100 HashSignatures objects
             100
         """
-        # Convert to float32 array and validate shape
         arr = np.asarray(vectors, dtype=np.float32)
         if arr.ndim != 2:
             raise ValueError("Batch input must be a 2D array")
@@ -174,50 +170,25 @@ class LSHHasher:
                 f"Expected vectors of dimension {self.dim}, received {arr.shape[1]}"
             )
 
-        # Hash each vector in the batch
-        return [self.hash_vector(vec) for vec in arr]
+        n_vectors = arr.shape[0]
 
-    def _project_and_pack(self, projection: np.ndarray, vector: np.ndarray) -> bytes:
-        """
-        Project vector onto random hyperplanes and pack result into bytes.
+        # Vectorized batch projection: (num_bands, rows_per_band, dim) @ (n_vectors, dim).T
+        # → (num_bands, rows_per_band, n_vectors)
+        projected = np.einsum("brd,vd->brv", self.projection_stack, arr)
 
-        This is the core LSH operation for a single band:
-            1. Matrix multiply: projection @ vector gives signed real values
-            2. Threshold at zero: positive values → 1 bit, negative/zero → 0 bit
-            3. Pack bits into bytes using little-endian bit order
-
-        Args:
-            projection: Random projection matrix of shape (rows_per_band, dim).
-            vector: Input vector of shape (dim,).
-
-        Returns:
-            Packed binary signature as bytes. Length is ceil(rows_per_band / 8).
-
-        Technical notes:
-            - Uses little-endian bit packing for consistency
-            - Resulting bytes can be used as dictionary keys or stored in databases
-            - Two vectors with similar directions will likely produce identical signatures
-
-        Example:
-            >>> projection = np.random.randn(4, 10).astype(np.float32)
-            >>> vector = np.random.randn(10).astype(np.float32)
-            >>> sig = hasher._project_and_pack(projection, vector)
-            >>> len(sig)  # 4 bits packed into 1 byte
-            1
-        """
-        # Project vector onto random hyperplanes (matrix-vector multiply)
-        projected = projection @ vector
-
-        # Convert to binary: 1 if positive, 0 if negative/zero
-        # This creates a hyperplane-based hash: which side of each plane?
+        # Binary threshold
         binary = projected > 0
 
-        # Pack boolean array into compact byte representation
-        # bitorder='little' ensures consistent packing across platforms
-        packed = np.packbits(binary.astype(np.uint8), bitorder="little")
+        # Pack bits per band per vector
+        result = []
+        for v in range(n_vectors):
+            bands = [
+                np.packbits(binary[b, :, v].astype(np.uint8), bitorder="little").tobytes()
+                for b in range(self.num_bands)
+            ]
+            result.append(HashSignatures(bands))
 
-        # Convert numpy array to Python bytes for hashing/storage
-        return packed.tobytes()
+        return result
 
     def _validate_vector(self, vector: np.ndarray) -> np.ndarray:
         """
@@ -246,10 +217,8 @@ class LSHHasher:
             >>> validated.dtype
             dtype('float32')
         """
-        # Convert to float32 and flatten to 1D
         vec = np.asarray(vector, dtype=np.float32).reshape(-1)
 
-        # Check dimension matches expected
         if vec.ndim != 1 or vec.shape[0] != self.dim:
             raise ValueError(
                 f"Expected vector of dimension {self.dim}, received {vec.shape}"
