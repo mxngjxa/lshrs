@@ -160,7 +160,7 @@ class RedisStorage:
     def close(self) -> None:
         """
         Close the Redis connection pool and release network resources.
-        
+
         If a connection pool was created, disconnects all pooled connections; calling this when no pool exists is a no-op.
         """
         if hasattr(self, "_pool"):
@@ -169,7 +169,7 @@ class RedisStorage:
     def __del__(self) -> None:
         """
         Ensure the Redis connection pool and client are closed when the RedisStorage instance is garbage-collected.
-        
+
         Calls close() to release underlying network and pool resources.
         """
         self.close()
@@ -178,7 +178,7 @@ class RedisStorage:
     def client(self) -> redis.Redis:  # pragma: no cover - simple accessor
         """
         Expose the underlying redis-py client for advanced or unwrapped operations.
-        
+
         Returns:
             redis.Redis: The internal Redis client instance used by this storage backend.
         """

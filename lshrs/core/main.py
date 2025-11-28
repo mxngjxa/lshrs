@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+
 # import pickle
 from pathlib import Path
 from threading import Lock
@@ -173,9 +174,9 @@ class LSHRS:
     ) -> None:
         """
         Create and configure an LSH orchestrator that manages hashing, Redis storage, and buffered ingestion.
-        
+
         Initializes internal state including the LSHHasher (with random projections), a RedisStorage instance (or uses the provided one), an in-memory buffer and lock for batched bucket operations, and configuration dictionaries used for persistence and introspection.
-        
+
         Parameters:
             dim: Dimensionality of vectors; must be greater than zero.
             num_perm: Total number of projection bits used by the hasher.
@@ -271,7 +272,7 @@ class LSHRS:
     def close(self) -> None:
         """
         Flush any buffered bucket operations and close the Redis storage connection.
-        
+
         Ensures pending operations are executed before closing the underlying Redis client to avoid leaving unflushed data or open connections.
         """
         self.flush()
@@ -280,7 +281,7 @@ class LSHRS:
     def __enter__(self) -> "LSHRS":
         """
         Enter runtime context for the LSHRS instance.
-        
+
         Returns:
             self (LSHRS): The LSHRS instance to be used within the context manager.
         """
@@ -289,7 +290,7 @@ class LSHRS:
     def __exit__(self, exc_type, exc_value, traceback) -> None:
         """
         Exit the context manager and close internal resources.
-        
+
         This method is called on context exit and ensures buffered operations are flushed and the underlying Redis connection is closed.
         """
         self.close()
@@ -297,7 +298,7 @@ class LSHRS:
     def __repr__(self) -> str:  # pragma: no cover - convenience
         """
         Concise string describing the instance's key LSHRS configuration.
-        
+
         Returns:
             str: Representation in the form "LSHRS(dim=..., num_perm=..., num_bands=..., rows_per_band=..., redis_prefix='...')".
         """
@@ -391,11 +392,11 @@ class LSHRS:
     def ingest(self, index: int, vector: np.ndarray) -> None:
         """
         Insert a single vector into the LSH index under the given integer identifier.
-        
+
         Parameters:
             index (int): Non-negative integer identifier for the vector.
             vector (np.ndarray): Dense vector convertible to a 1-D float32 numpy array of length equal to the LSH dimensionality.
-        
+
         Raises:
             ValueError: If `index` is negative, if the vector's dimensionality does not equal the configured dimension, or if the vector is all zeros.
         """
@@ -803,7 +804,7 @@ class LSHRS:
     def clear(self) -> None:
         """
         Remove all Redis keys associated with the configured prefix, deleting the LSH index stored in Redis.
-        
+
         This deletes all hash buckets and indexed entries under the instance's Redis prefix. Projection matrices remain in memory so the index can be rebuilt after clearing. This operation is irreversible; call save_to_disk() first if you may need to restore the index.
         """
         # Ensure any buffered operations are written first
@@ -909,10 +910,7 @@ class LSHRS:
 
         # 2. Save projections (efficient binary format)
         # We save them as a list of arrays in a single compressed file
-        np.savez_compressed(
-            output_dir / "projections.npz",
-            *self._hasher.projections
-        )
+        np.savez_compressed(output_dir / "projections.npz", *self._hasher.projections)
 
     @classmethod
     def load_from_disk(
@@ -999,8 +997,7 @@ class LSHRS:
         with np.load(input_dir / "projections.npz") as data:
             # Files in .npz are named arr_0, arr_1, ... by default when using *args
             instance._hasher.projections = [
-                data[f"arr_{i}"].astype(np.float32)
-                for i in range(len(data.files))
+                data[f"arr_{i}"].astype(np.float32) for i in range(len(data.files))
             ]
 
         return instance
@@ -1012,9 +1009,9 @@ class LSHRS:
     def __getstate__(self) -> Dict[str, Any]:
         """
         Produce a minimal, pickle-friendly representation of the instance suitable for serialization.
-        
+
         This representation includes the LSH configuration, Redis connection configuration (for reference), and the projection matrices required to reconstruct the hasher. It deliberately excludes live resources and transient state such as the active Redis connection, the configured vector_fetch_fn, and any buffered operations.
-        
+
         Returns:
             state (dict): Serializable mapping with keys:
                 - "config": copy of the instance configuration.
@@ -1120,12 +1117,12 @@ class LSHRS:
     def _candidate_counts(self, query_vector: np.ndarray) -> Dict[int, int]:
         """
         Compute per-candidate counts of LSH band collisions for a prepared query vector.
-        
+
         Counts how many bands produced the same bucket as the query; larger counts indicate more band matches and therefore stronger candidate signals.
-        
+
         Parameters:
             query_vector (np.ndarray): Prepared query vector of shape (dim,).
-        
+
         Returns:
             Dict[int, int]: Mapping from candidate index to number of band collisions.
         """
@@ -1149,7 +1146,7 @@ class LSHRS:
     ) -> None:
         """
         Queue bucket-add operations for a vector's per-band signatures into the internal buffer for later batch execution.
-        
+
         Parameters:
             index (int): Non-negative identifier of the vector being indexed.
             signatures (Iterable[bytes]): Per-band hash signatures (one entry per band).
@@ -1177,10 +1174,10 @@ class LSHRS:
     def _require_vector_fetch_fn(self) -> VectorFetchFn:
         """
         Return the configured vector fetch function or raise if none is configured.
-        
+
         Returns:
             VectorFetchFn: The configured function used to fetch vectors by indices.
-        
+
         Raises:
             RuntimeError: If `vector_fetch_fn` is not configured.
         """
