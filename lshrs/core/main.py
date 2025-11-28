@@ -920,10 +920,16 @@ class LSHRS:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # 1. Save metadata (configuration)
+        # NOTE: The redis_config contains the password, which must not be persisted.
+        # Create a shallow copy and redact the password key before saving.
+        sanitized_redis_config = self._redis_config.copy()
+        if "password" in sanitized_redis_config:
+            sanitized_redis_config["password"] = "<REDACTED>"
+
         metadata = {
             "version": "0.1.1a4",
             "config": self._config,
-            "redis_config": self._redis_config,
+            "redis_config": sanitized_redis_config,
         }
         with open(output_dir / "metadata.json", "w") as f:
             json.dump(metadata, f, indent=2)
@@ -990,6 +996,9 @@ class LSHRS:
         config = metadata["config"]
         stored_redis = metadata["redis_config"].copy()
 
+        # NOTE: The stored redis_config may have a redacted password.
+        # If a password is required, the user must supply it via the redis_config
+        # parameter during load, as credentials are not persistently stored.
         # Apply Redis config overrides
         if redis_config:
             stored_redis.update(redis_config)
