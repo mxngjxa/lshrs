@@ -172,10 +172,21 @@ class LSHRS:
         seed: int = 42,
     ) -> None:
         """
-        Initialize the LSH orchestrator with configuration and connections.
-
-        Validates parameters, sets up the hasher with projection matrices,
-        establishes Redis connection, and initializes the operation buffer.
+        Create and configure an LSH orchestrator that manages hashing, Redis storage, and buffered ingestion.
+        
+        Initializes internal state including the LSHHasher (with random projections), a RedisStorage instance (or uses the provided one), an in-memory buffer and lock for batched bucket operations, and configuration dictionaries used for persistence and introspection.
+        
+        Parameters:
+            dim: Dimensionality of vectors; must be greater than zero.
+            num_perm: Total number of projection bits used by the hasher.
+            num_bands, rows_per_band: If both provided, must satisfy num_bands * rows_per_band == num_perm. If either is omitted, they are auto-configured from num_perm and similarity_threshold.
+            similarity_threshold: Target similarity used to auto-configure bands/rows when needed.
+            buffer_size: Number of buffered bucket operations that triggers an automatic flush; must be greater than zero.
+            vector_fetch_fn: Optional callable to fetch vectors by indices; required for reranking/top-p query modes.
+            storage: Optional preconfigured RedisStorage instance; if omitted, a RedisStorage is created using the redis_* parameters.
+            redis_host, redis_port, redis_db, redis_password, redis_prefix, decode_responses: Redis connection and key-prefix configuration used when creating a RedisStorage.
+            redis_max_connections: Maximum number of connections allowed in the Redis connection pool when creating RedisStorage.
+            seed: Random seed used to initialize the hasher's projection matrices.
         """
         # Validate basic parameters
         if dim <= 0:
@@ -259,27 +270,36 @@ class LSHRS:
 
     def close(self) -> None:
         """
-        Close Redis connections and flush pending buffer operations.
-
-        Should be called when the LSHRS instance is no longer needed to prevent
-        connection leaks and ensure all data is persisted.
+        Flush any buffered bucket operations and close the Redis storage connection.
+        
+        Ensures pending operations are executed before closing the underlying Redis client to avoid leaving unflushed data or open connections.
         """
         self.flush()
         self._storage.close()
 
     def __enter__(self) -> "LSHRS":
-        """Context manager entry."""
+        """
+        Enter runtime context for the LSHRS instance.
+        
+        Returns:
+            self (LSHRS): The LSHRS instance to be used within the context manager.
+        """
         return self
 
     def __exit__(self, exc_type, exc_value, traceback) -> None:
-        """Context manager exit - ensures resources are cleaned up."""
+        """
+        Exit the context manager and close internal resources.
+        
+        This method is called on context exit and ensures buffered operations are flushed and the underlying Redis connection is closed.
+        """
         self.close()
 
     def __repr__(self) -> str:  # pragma: no cover - convenience
         """
-        Return a human-readable representation of the LSHRS instance.
-
-        Shows key configuration parameters for debugging and logging.
+        Concise string describing the instance's key LSHRS configuration.
+        
+        Returns:
+            str: Representation in the form "LSHRS(dim=..., num_perm=..., num_bands=..., rows_per_band=..., redis_prefix='...')".
         """
         return (
             "LSHRS("
@@ -370,46 +390,14 @@ class LSHRS:
 
     def ingest(self, index: int, vector: np.ndarray) -> None:
         """
-        Insert a single vector into the index.
-
-        This is the core indexing operation. The vector is:
-            1. Validated and converted to correct shape/dtype
-            2. Hashed into signatures (one per band)
-            3. Added to buffer for efficient Redis storage
-            4. Flushed to Redis when buffer is full
-
-        For bulk operations, prefer index() or create_signatures() for better performance.
-
-        Parameters
-        ----------
-        index : int
-            Non-negative integer identifier for the vector. This is typically
-            a primary key from your database or array index. Must be unique
-            per vector to avoid collisions.
-
-        vector : np.ndarray
-            Dense vector of dimension `dim`. Can be any array-like that converts
-            to numpy array. Will be flattened if multi-dimensional.
-
-        Examples
-        --------
-        >>> lsh = LSHRS(dim=128)
-        >>> vector = np.random.randn(128)
-        >>> lsh.ingest(index=42, vector=vector)
-
-        >>> # Also works with lists
-        >>> lsh.ingest(0, [1.0, 2.0, 3.0, ...])  # 128 values
-
-        Raises
-        ------
-        ValueError
-            If index is negative or vector dimension doesn't match `dim`.
-
-        Notes
-        -----
-        Single ingestion uses buffering for efficiency. The vector won't be
-        immediately searchable until buffer flushes (either when full or
-        explicitly via flush()).
+        Insert a single vector into the LSH index under the given integer identifier.
+        
+        Parameters:
+            index (int): Non-negative integer identifier for the vector.
+            vector (np.ndarray): Dense vector convertible to a 1-D float32 numpy array of length equal to the LSH dimensionality.
+        
+        Raises:
+            ValueError: If `index` is negative, if the vector's dimensionality does not equal the configured dimension, or if the vector is all zeros.
         """
         # Validate index is non-negative
         if index < 0:
@@ -814,24 +802,9 @@ class LSHRS:
 
     def clear(self) -> None:
         """
-        Delete every key associated with the configured Redis prefix.
-
-        Completely removes the LSH index from Redis. This is irreversible!
-        All hash buckets and indexed vectors will be deleted.
-
-        The projection matrices remain in memory, so you can rebuild the
-        index with the same hash characteristics.
-
-        Examples
-        --------
-        >>> lsh = LSHRS(dim=128, redis_prefix="temp_index")
-        >>> # ... index some vectors ...
-        >>> lsh.clear()  # Delete everything under "temp_index:*"
-
-        Warning
-        -------
-        This operation is irreversible. Consider using save_to_disk()
-        before clearing if you might need to restore the index.
+        Remove all Redis keys associated with the configured prefix, deleting the LSH index stored in Redis.
+        
+        This deletes all hash buckets and indexed entries under the instance's Redis prefix. Projection matrices remain in memory so the index can be rebuilt after clearing. This operation is irreversible; call save_to_disk() first if you may need to restore the index.
         """
         # Ensure any buffered operations are written first
         self.flush()
@@ -1038,23 +1011,15 @@ class LSHRS:
 
     def __getstate__(self) -> Dict[str, Any]:
         """
-        Return a minimal, pickle-friendly representation of the instance.
-
-        Used by pickle.dumps() and save_to_disk(). Returns only the essential
-        state needed to reconstruct the hasher:
-            - Configuration parameters
-            - Redis configuration (for reference)
-            - Projection matrices
-
-        Excludes:
-            - Redis connection (not pickleable)
-            - vector_fetch_fn (not pickleable)
-            - Buffer contents (transient state)
-
-        Returns
-        -------
-        Dict[str, Any]
-            Serializable state dictionary.
+        Produce a minimal, pickle-friendly representation of the instance suitable for serialization.
+        
+        This representation includes the LSH configuration, Redis connection configuration (for reference), and the projection matrices required to reconstruct the hasher. It deliberately excludes live resources and transient state such as the active Redis connection, the configured vector_fetch_fn, and any buffered operations.
+        
+        Returns:
+            state (dict): Serializable mapping with keys:
+                - "config": copy of the instance configuration.
+                - "redis_config": copy of the Redis connection/configuration.
+                - "projections": list of projection matrices as float32 NumPy arrays.
         """
         # Ensure buffer is empty (transient state shouldn't be persisted)
         self.flush()
@@ -1154,25 +1119,15 @@ class LSHRS:
 
     def _candidate_counts(self, query_vector: np.ndarray) -> Dict[int, int]:
         """
-        Count band collisions for each candidate matching the query.
-
-        For each band:
-            1. Hash query vector to get signature
-            2. Retrieve all indices in that bucket
-            3. Increment collision count for each index
-
-        More collisions = more likely similar (but not guaranteed).
-
-        Parameters
-        ----------
-        query_vector : np.ndarray
-            Prepared query vector of shape (dim,).
-
-        Returns
-        -------
-        Dict[int, int]
-            Mapping from candidate index to collision count.
-            Higher counts indicate more band matches.
+        Compute per-candidate counts of LSH band collisions for a prepared query vector.
+        
+        Counts how many bands produced the same bucket as the query; larger counts indicate more band matches and therefore stronger candidate signals.
+        
+        Parameters:
+            query_vector (np.ndarray): Prepared query vector of shape (dim,).
+        
+        Returns:
+            Dict[int, int]: Mapping from candidate index to number of band collisions.
         """
         # Hash query vector to get signatures for all bands
         signatures = self._hasher.hash_vector(query_vector)
@@ -1193,18 +1148,11 @@ class LSHRS:
         signatures: Iterable[bytes],
     ) -> None:
         """
-        Add bucket operations to the buffer for later batch execution.
-
-        For each band signature, creates an operation tuple and adds to buffer.
-        Operations are executed later via flush() for efficiency.
-
-        Parameters
-        ----------
-        index : int
-            Vector index being added.
-
-        signatures : Iterable[bytes]
-            Hash signatures from all bands.
+        Queue bucket-add operations for a vector's per-band signatures into the internal buffer for later batch execution.
+        
+        Parameters:
+            index (int): Non-negative identifier of the vector being indexed.
+            signatures (Iterable[bytes]): Per-band hash signatures (one entry per band).
         """
         with self._buffer_lock:
             # Create operation for each band
@@ -1228,19 +1176,13 @@ class LSHRS:
 
     def _require_vector_fetch_fn(self) -> VectorFetchFn:
         """
-        Get vector_fetch_fn or raise error if not configured.
-
-        Used by operations that require fetching vectors (reranking).
-
-        Returns
-        -------
-        VectorFetchFn
-            The configured fetch function.
-
-        Raises
-        ------
-        RuntimeError
-            If vector_fetch_fn is not configured.
+        Return the configured vector fetch function or raise if none is configured.
+        
+        Returns:
+            VectorFetchFn: The configured function used to fetch vectors by indices.
+        
+        Raises:
+            RuntimeError: If `vector_fetch_fn` is not configured.
         """
         if self._vector_fetch_fn is None:
             raise RuntimeError(

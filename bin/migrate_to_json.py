@@ -23,6 +23,19 @@ from lshrs import LSHRS
 
 
 def migrate(input_path: str, output_path: str) -> None:
+    """
+    Migrate a legacy pickle-based LSHRS index into the new JSON/NumPy on-disk format.
+    
+    Loads a legacy LSHRS state from the given pickle file, validates its structure, reconstructs an in-memory LSHRS instance (falling back to a non-Redis dummy storage if Redis is unavailable), restores saved projection matrices, and saves the index to the specified output directory in the new format.
+    
+    Parameters:
+        input_path (str): Path to the legacy .pkl file containing the LSHRS state.
+        output_path (str): Path to the output directory where the migrated index will be written.
+    
+    Behavior:
+        - Exits the process with status code 1 if the input file is missing, the output directory exists and is not empty, the pickle cannot be loaded, or the loaded state is not a valid legacy LSHRS dump.
+        - If a Redis-backed LSHRS cannot be constructed, the function creates an instance using a dummy storage so migration can proceed without a Redis connection.
+    """
     input_file = Path(input_path)
     if not input_file.exists():
         print(f"Error: Input file '{input_file}' not found.")
@@ -89,8 +102,20 @@ def migrate(input_path: str, output_path: str) -> None:
         # Mock storage to allow saving without Redis connection
         from lshrs.storage.redis import RedisStorage
         class DummyStorage(RedisStorage):
-            def __init__(self): pass
-            def batch_add(self, ops): pass
+            def __init__(self): """
+Initialize a no-op instance used as a dummy storage implementation for migration.
+
+This constructor intentionally performs no setup so the object can be created
+without connecting to external services (e.g., Redis).
+"""
+pass
+            def batch_add(self, ops): """
+Add multiple storage operations in a single batch.
+
+Parameters:
+    ops (iterable): An iterable of storage operations to perform as a batch (each item represents a single add/update operation).
+"""
+pass
         
         lsh = LSHRS(
             dim=config["dim"],

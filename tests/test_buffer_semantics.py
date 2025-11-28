@@ -6,10 +6,26 @@ from lshrs.storage.redis import RedisStorage
 
 class MockStorage(RedisStorage):
     def __init__(self):
+        """
+        Initialize an in-memory mock storage for testing LSH buffering and bucket lookups.
+        
+        Creates:
+        - self.batches: a list that records appended batches of (band_id, hash_val, index) operations.
+        - self.data: a mapping from (band_id, hash_val) tuples to sets of indices representing bucket contents.
+        """
         self.batches: List[Any] = []
         self.data: dict = {}
 
     def batch_add(self, operations: List[Tuple[int, bytes, int]]) -> None:
+        """
+        Record a batch of indexing operations and update in-memory buckets for testing.
+        
+        Parameters:
+            operations (List[Tuple[int, bytes, int]]): Sequence of tuples (band_id, hash_val, index) representing indexing operations to append and apply to the in-memory storage.
+        
+        Description:
+            Appends the given operations list to the recorded batches and, for each tuple, adds the provided index to the set associated with the (band_id, hash_val) key in the in-memory `data` mapping. This method is intended for use in tests to simulate batched writes and support in-memory queries.
+        """
         self.batches.append(operations)
         for band_id, hash_val, index in operations:
             key = (band_id, hash_val)
@@ -18,9 +34,24 @@ class MockStorage(RedisStorage):
             self.data[key].add(index)
 
     def get_bucket(self, band_id: int, hash_val: bytes) -> Set[int]:
+        """
+        Return the set of vector indices stored for the given band and hash.
+        
+        Parameters:
+            band_id (int): Band identifier used in the LSH banding.
+            hash_val (bytes): Bucket hash value.
+        
+        Returns:
+            Set[int]: Indices assigned to the (band_id, hash_val) bucket; empty set if the bucket does not exist.
+        """
         return self.data.get((band_id, hash_val), set())
         
     def close(self) -> None:
+        """
+        Close the storage without performing any action.
+        
+        This no-op method exists to satisfy the storage interface; it does not flush buffers or release resources.
+        """
         pass
 
 def test_single_ingest_not_immediately_queryable():
