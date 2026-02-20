@@ -1,18 +1,55 @@
 [project]
 name = "lshrs"
-version = "0.1.1b1"
-description = "Add your description here"
+version = "0.1.1b2"
+description = "Redis-backed Locality Sensitive Hashing toolkit for fast approximate nearest neighbor search"
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.10"
+authors = [
+    { name = "Mingjia Guan", email = "mxngjxa@gmail.com" },
+]
+keywords = [
+    "lsh",
+    "locality-sensitive-hashing",
+    "approximate-nearest-neighbor",
+    "redis",
+    "vector-search",
+    "similarity-search",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Database",
+    "Typing :: Typed",
+]
 dependencies = [
     "numpy>=1.24",
     "scipy>=1.14.1",
     "redis>=7.0.1",
 ]
 
+[project.urls]
+Homepage = "https://github.com/mxngjxa/lshrs"
+Repository = "https://github.com/mxngjxa/lshrs"
+Documentation = "https://github.com/mxngjxa/lshrs/blob/main/docs/docs.md"
+Issues = "https://github.com/mxngjxa/lshrs/issues"
+Changelog = "https://github.com/mxngjxa/lshrs/releases"
+
 [project.optional-dependencies]
 postgres = [
     "psycopg>=3.2.12",
+]
+parquet = [
+    "pyarrow>=14.0",
 ]
 
 [dependency-groups]
@@ -22,3 +59,38 @@ dev = [
     "ruff>=0.14.5",
     "ty>=0.0.1a26",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "TCH",  # flake8-type-checking
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "UP007",  # use X | Y for union types (keep Optional for readability)
+    "UP045",  # use X | None instead of Optional[X] (same as UP007)
+    "TC001",  # move application imports to TYPE_CHECKING (adds complexity)
+    "TC002",  # move third-party imports to TYPE_CHECKING (adds complexity)
+    "TC003",  # move stdlib imports to TYPE_CHECKING (adds complexity)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["lshrs"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

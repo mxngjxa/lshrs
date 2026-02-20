@@ -5,8 +5,8 @@ a uniform API for working with them.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Iterable, Tuple
 
 
 @dataclass(frozen=True)
@@ -31,7 +31,7 @@ class HashSignatures:
         ...     print(band_sig.hex())  # Print each band's signature in hex
     """
 
-    bands: Tuple[bytes, ...]
+    bands: tuple[bytes, ...]
 
     def __post_init__(self) -> None:
         """
@@ -40,7 +40,7 @@ class HashSignatures:
         normalized = tuple(bytes(band) for band in self.bands)
         object.__setattr__(self, "bands", normalized)
 
-    def __iter__(self) -> Iterable[bytes]:
+    def __iter__(self) -> Iterator[bytes]:
         """
         Iterate over band signatures.
 
@@ -64,7 +64,7 @@ class HashSignatures:
         """
         return self.bands[item]
 
-    def as_tuple(self) -> Tuple[bytes, ...]:
+    def as_tuple(self) -> tuple[bytes, ...]:
         """
         Return the underlying tuple for use in hash key generation.
         """

@@ -27,14 +27,14 @@ Typical usage:
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
-from typing import Iterable, Iterator, Sequence, Set, Tuple
 
 import redis
 
 # Type alias for clarity in batch operations
 # Each operation is: (band_id, hash_signature, vector_index)
-BucketOperation = Tuple[int, bytes, int]
+BucketOperation = tuple[int, bytes, int]
 
 
 class RedisStorage:
@@ -279,7 +279,7 @@ class RedisStorage:
         # No-op if index already in set (automatic deduplication)
         self._client.sadd(key, index)
 
-    def get_bucket(self, band_id: int, hash_val: bytes) -> Set[int]:
+    def get_bucket(self, band_id: int, hash_val: bytes) -> set[int]:
         """
         Fetch all indices stored in the specified bucket.
 
@@ -338,12 +338,12 @@ class RedisStorage:
 
         # Fetch all members of the set
         # Returns empty set if key doesn't exist
-        members = self._client.smembers(key)
+        members = self._client.smembers(key)  # type: ignore[union-attr]
 
         # Convert bytes/strings to integers
         # Redis returns bytes by default (decode_responses=False)
         # or strings (decode_responses=True)
-        return {int(m) for m in members}
+        return {int(m) for m in members}  # type: ignore[union-attr]
 
     def batch_add(self, operations: Sequence[BucketOperation]) -> None:
         """
@@ -505,7 +505,7 @@ class RedisStorage:
             # All SREM commands execute when pipeline exits
 
     @contextmanager
-    def pipeline(self) -> Iterator[redis.client.Pipeline]:
+    def pipeline(self) -> Iterator[redis.client.Pipeline]:  # type: ignore[name-defined]
         """
         Context manager for Redis pipelines with automatic execution.
 

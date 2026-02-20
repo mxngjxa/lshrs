@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Iterator, List, Optional, Sequence, Tuple
+from collections.abc import Callable, Iterator, Sequence
+from typing import Any, Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -26,7 +27,7 @@ def iter_postgres_vectors(
     order_by: Optional[str] = None,
     params: Optional[Sequence[Any]] = None,
     fetch_query: Optional[str] = None,
-) -> Iterator[Tuple[List[int], NDArray[np.float32]]]:
+) -> Iterator[tuple[list[int], NDArray[np.float32]]]:
     """
     Stream ``(indices, vectors)`` pairs from PostgreSQL.
 
@@ -74,8 +75,7 @@ def iter_postgres_vectors(
     """
     if psycopg is None:
         raise ImportError(
-            "psycopg is required to stream data from PostgreSQL. "
-            "Install it via `pip install psycopg[binary]`."
+            "psycopg is required to stream data from PostgreSQL. Install it via `pip install psycopg[binary]`."
         )
 
     if connection_factory is None and dsn is None:
@@ -119,10 +119,10 @@ def iter_postgres_vectors(
                 if not rows:
                     break
 
-                indices: List[int] = []
-                vectors: List[NDArray[np.float32]] = []
+                indices: list[int] = []
+                vectors: list[NDArray[np.float32]] = []
 
-                for row_idx, row in enumerate(rows):
+                for _row_idx, row in enumerate(rows):
                     idx = int(row[0])
                     vector = _coerce_vector(row[1])
 
@@ -154,14 +154,14 @@ def _build_query(
     where_clause: Optional[str],
     order_by: Optional[str],
     batch_params: Optional[Sequence[Any]],
-) -> Tuple[Any, Tuple[Any, ...]]:
+) -> tuple[Any, tuple[Any, ...]]:
     """
     Construct the SQL query and parameter tuple for streaming vector data.
     """
     if fetch_query is not None:
         return fetch_query, tuple(batch_params or ())
 
-    from psycopg import sql  # Imported lazily to avoid import when psycopg missing
+    from psycopg import sql  # type: ignore[import-not-found]  # optional dependency
 
     query = sql.SQL("SELECT {index}, {vector} FROM {table}").format(
         index=sql.Identifier(index_column),
@@ -175,7 +175,7 @@ def _build_query(
     if order_by:
         query += sql.SQL(" ORDER BY ") + sql.SQL(order_by)
 
-    params: List[Any] = []
+    params: list[Any] = []
     if limit is not None:
         query += sql.SQL(" LIMIT %s")
         params.append(limit)
@@ -194,9 +194,7 @@ def _coerce_vector(raw_value: Any) -> NDArray[np.float32]:
     elif isinstance(raw_value, str):
         stripped = raw_value.strip("{}[]() ")
         if not stripped:
-            raise ValueError(
-                "Encountered empty vector representation in PostgreSQL row"
-            )
+            raise ValueError("Encountered empty vector representation in PostgreSQL row")
         array = np.fromiter(
             (float(part) for part in stripped.split(",")),
             dtype=np.float32,

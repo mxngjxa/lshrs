@@ -25,8 +25,9 @@ Typical usage:
 
 from __future__ import annotations
 
+from collections.abc import Iterator, Sequence
 from pathlib import Path
-from typing import Iterator, List, Optional, Sequence, Tuple
+from typing import Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -49,7 +50,7 @@ def iter_parquet_vectors(
     index_column: str = "index",
     vector_column: str = "vector",
     batch_size: int = DEFAULT_PARQUET_BATCH_SIZE,
-) -> Iterator[Tuple[List[int], NDArray[np.float32]]]:
+) -> Iterator[tuple[list[int], NDArray[np.float32]]]:
     """
     Stream (indices, vectors) pairs from a Parquet file in batches.
 
@@ -170,8 +171,7 @@ def iter_parquet_vectors(
     # Check if PyArrow is available (optional dependency)
     if pq is None:
         raise ImportError(
-            "pyarrow is required to stream vectors from Parquet files. "
-            "Install it via `pip install pyarrow`."
+            "pyarrow is required to stream vectors from Parquet files. Install it via `pip install pyarrow`."
         )
 
     # Resolve path with tilde expansion for home directory
@@ -198,16 +198,12 @@ def iter_parquet_vectors(
     # get_field_index returns -1 if column doesn't exist
     for column in (index_column, vector_column):
         if schema.get_field_index(column) == -1:
-            raise ValueError(
-                f"Column '{column}' was not found in Parquet schema {schema.names}"
-            )
+            raise ValueError(f"Column '{column}' was not found in Parquet schema {schema.names}")
 
     # Stream file in batches for memory efficiency
     # iter_batches yields RecordBatch objects with columnar data
     # Only specified columns are read (columnar projection)
-    for batch in parquet_file.iter_batches(
-        batch_size=batch_size, columns=[index_column, vector_column]
-    ):
+    for batch in parquet_file.iter_batches(batch_size=batch_size, columns=[index_column, vector_column]):
         # Skip empty batches (can occur at file boundaries)
         if batch.num_rows == 0:
             continue
@@ -288,7 +284,7 @@ def _coerce_vectors(rows: Sequence[Sequence[float]]) -> NDArray[np.float32]:
         - Vectorized operations where possible
     """
     # Accumulator for normalized vectors
-    normalized: List[NDArray[np.float32]] = []
+    normalized: list[NDArray[np.float32]] = []
 
     # Track expected dimension (set from first vector)
     # None initially, then locked to first vector's dimension
@@ -312,8 +308,7 @@ def _coerce_vectors(rows: Sequence[Sequence[float]]) -> NDArray[np.float32]:
         # Validate subsequent vectors match dimension
         elif arr.shape[0] != expected_dim:
             raise ValueError(
-                "All vectors must share the same dimensionality; "
-                f"expected {expected_dim}, received {arr.shape[0]}"
+                f"All vectors must share the same dimensionality; expected {expected_dim}, received {arr.shape[0]}"
             )
 
         # Add validated vector to collection

@@ -1,108 +1,91 @@
+"""Tests for LSHRS save/load persistence and pickle protocol."""
+
+from __future__ import annotations
+
 import json
-# import shutil
-# from pathlib import Path
+import pickle
 
 import numpy as np
 import pytest
 
 from lshrs import LSHRS
-from lshrs.storage.redis import RedisStorage
-
-
-class MockStorage(RedisStorage):
-    def __init__(self):
-        """
-        Initialize a MockStorage instance used in tests.
-
-        This constructor performs no real initialization or side effects (no network, disk, or Redis setup), allowing the object to act as a lightweight stand-in for RedisStorage in unit tests.
-        """
-        pass
-
-    def batch_add(self, ops):
-        """
-        No-op placeholder that accepts a sequence of storage operations and ignores them (used in tests).
-
-        Parameters:
-            ops (Iterable): An iterable of storage operation records to be applied; the mock implementation does not persist or modify any state.
-        """
-        pass
-
-    def clear(self):
-        """
-        No-op placeholder that represents clearing stored data for the mock storage used in tests.
-
-        This method intentionally does nothing — it exists to satisfy the storage interface without performing any I/O or state changes.
-        """
-        pass
+from tests.conftest import MockStorage
 
 
 def test_save_and_load_new_format(tmp_path):
-    """
-    Test saving and loading LSHRS instance using the new secure JSON/NumPy format.
-    """
+    """Save and load preserves config and projection matrices exactly."""
     dim = 64
+    storage = MockStorage()
     lsh = LSHRS(
         dim=dim,
         num_bands=8,
         rows_per_band=4,
         num_perm=32,
-        storage=MockStorage(),
+        storage=storage,
         seed=123,
     )
 
     save_path = tmp_path / "lsh_index"
     lsh.save_to_disk(save_path)
 
-    # Verify directory structure
     assert save_path.is_dir()
     assert (save_path / "metadata.json").exists()
     assert (save_path / "projections.npz").exists()
 
-    # Verify metadata is valid JSON
-    with open(save_path / "metadata.json", "r") as f:
+    with open(save_path / "metadata.json") as f:
         metadata = json.load(f)
         assert metadata["config"]["dim"] == dim
         assert metadata["config"]["seed"] == 123
         assert "version" in metadata
 
-    # Verify projections are valid NPZ
     with np.load(save_path / "projections.npz") as data:
-        assert len(data.files) == 8  # num_bands
+        assert len(data.files) == 8
 
-    # Load back
     restored = LSHRS.load_from_disk(save_path, storage=MockStorage())
 
-    # Verify restored state matches original
     assert restored._dim == lsh._dim
     assert restored._config == lsh._config
 
-    # Verify projections match exactly
-    for orig, rest in zip(lsh._hasher.projections, restored._hasher.projections):
+    for orig, rest in zip(lsh._hasher.projections, restored._hasher.projections, strict=True):
         np.testing.assert_array_equal(orig, rest)
 
 
+def test_save_redacts_password(tmp_path):
+    """Saved metadata must not contain the plaintext Redis password."""
+    storage = MockStorage()
+    lsh = LSHRS(
+        dim=16,
+        num_bands=2,
+        rows_per_band=2,
+        num_perm=4,
+        storage=storage,
+        redis_password="super_secret",
+    )
+
+    save_path = tmp_path / "redacted_test"
+    lsh.save_to_disk(save_path)
+
+    with open(save_path / "metadata.json") as f:
+        metadata = json.load(f)
+    assert metadata["redis_config"]["password"] == "<REDACTED>"
+
+
 def test_load_missing_directory_raises(tmp_path):
-    """Test that loading from a non-existent directory raises FileNotFoundError."""
+    """Loading from a non-existent directory raises FileNotFoundError."""
     with pytest.raises(FileNotFoundError):
         LSHRS.load_from_disk(tmp_path / "non_existent")
 
 
 def test_load_missing_files_raises(tmp_path):
-    """
-    Verify that loading an index from a directory with required files missing raises FileNotFoundError.
-
-    Specifically checks two failure modes: when the directory lacks metadata.json, and when metadata.json exists but projections.npz is missing.
-    """
+    """Loading from an incomplete directory raises appropriate errors."""
     save_path = tmp_path / "bad_index"
     save_path.mkdir()
 
-    # Missing metadata.json
     with pytest.raises(FileNotFoundError):
         LSHRS.load_from_disk(save_path)
 
-    # Create valid metadata but missing projections
     metadata = {
-        "version": "0.1.1a4",
+        "version": "0.1.1b2",
         "config": {
             "dim": 10,
             "num_perm": 10,
@@ -126,3 +109,24 @@ def test_load_missing_files_raises(tmp_path):
 
     with pytest.raises(FileNotFoundError):
         LSHRS.load_from_disk(save_path)
+
+
+def test_pickle_round_trip():
+    """Pickle serialization preserves config and projections."""
+    storage = MockStorage()
+    lsh = LSHRS(
+        dim=32,
+        num_bands=4,
+        rows_per_band=4,
+        num_perm=16,
+        storage=storage,
+        seed=7,
+    )
+
+    data = pickle.dumps(lsh)
+    restored = pickle.loads(data)  # noqa: S301
+
+    assert restored._config == lsh._config
+    assert len(restored._hasher.projections) == len(lsh._hasher.projections)
+    for orig, rest in zip(lsh._hasher.projections, restored._hasher.projections, strict=True):
+        np.testing.assert_array_equal(orig, rest)

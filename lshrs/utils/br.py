@@ -26,9 +26,10 @@ Typical usage:
     >>> # Use b bands with r rows each in your LSH implementation
 """
 
+from typing import Optional
+
 import numpy as np
 from scipy.integrate import quad
-from typing import Tuple, Optional
 
 # Pre-computed optimal configurations for common hash sizes
 # These have been exhaustively searched to minimize error rates
@@ -158,7 +159,7 @@ def compute_collision_probability(similarity: float, b: int, r: int) -> float:
     return 1 - (1 - similarity**r) ** b
 
 
-def compute_false_rates(b: int, r: int, threshold: float) -> Tuple[float, float]:
+def compute_false_rates(b: int, r: int, threshold: float) -> tuple[float, float]:
     """
     Compute false positive and false negative rates for given LSH configuration.
 
@@ -219,9 +220,7 @@ def compute_false_rates(b: int, r: int, threshold: float) -> Tuple[float, float]
     return fp_rate, fn_rate
 
 
-def find_optimal_br(
-    num_perm: int, target_threshold: float, tolerance: float = 0.05
-) -> Optional[Tuple[int, int]]:
+def find_optimal_br(num_perm: int, target_threshold: float, tolerance: float = 0.05) -> Optional[tuple[int, int]]:
     """
     Find optimal b and r values for given number of permutations and target threshold.
 
@@ -323,7 +322,7 @@ def find_optimal_br(
     return best_config
 
 
-def get_optimal_config(num_perm: int, target_threshold: float = 0.5) -> Tuple[int, int]:
+def get_optimal_config(num_perm: int, target_threshold: float = 0.5) -> tuple[int, int]:
     """
     Get optimal LSH configuration for given parameters.
 
@@ -470,7 +469,7 @@ def print_config_analysis(num_perm: int, threshold: float = 0.5):
 if __name__ == "__main__":
     """
     Demonstration of configuration selection for various scenarios.
-    
+
     Shows how different hash sizes and thresholds lead to different
     optimal configurations, helping users understand the trade-offs.
     """
@@ -484,6 +483,4 @@ if __name__ == "__main__":
         for threshold in [0.5, 0.8, 0.9]:
             b, r = get_optimal_config(size, threshold)
             actual = compute_lsh_threshold(b, r)
-            print(
-                f"  Threshold {threshold:.1f}: b={b:4d}, r={r:3d} (actual: {actual:.3f})"
-            )
+            print(f"  Threshold {threshold:.1f}: b={b:4d}, r={r:3d} (actual: {actual:.3f})")

@@ -10,8 +10,6 @@ the similarity threshold for candidate matches.
 
 from __future__ import annotations
 
-from typing import List
-
 import numpy as np
 
 from lshrs._config.config import HashSignatures
@@ -93,10 +91,7 @@ class LSHHasher:
         # Each matrix projects dim-dimensional vectors to rows_per_band dimensions
         # Using standard normal distribution (mean=0, std=1) is theoretically sound
         rng = np.random.default_rng(seed)
-        self.projections = [
-            rng.standard_normal((rows_per_band, dim)).astype(np.float32)
-            for _ in range(num_bands)
-        ]
+        self.projections = [rng.standard_normal((rows_per_band, dim)).astype(np.float32) for _ in range(num_bands)]
 
     def hash_vector(self, vector: np.ndarray) -> HashSignatures:
         """
@@ -134,13 +129,11 @@ class LSHHasher:
         vec = self._validate_vector(vector)
 
         # Hash vector with each band's projection matrix
-        bands = [
-            self._project_and_pack(projection, vec) for projection in self.projections
-        ]
+        bands = [self._project_and_pack(projection, vec) for projection in self.projections]
 
-        return HashSignatures(bands)
+        return HashSignatures(tuple(bands))
 
-    def hash_batch(self, vectors: np.ndarray) -> List[HashSignatures]:
+    def hash_batch(self, vectors: np.ndarray) -> list[HashSignatures]:
         """
         Hash a batch of vectors efficiently.
 
@@ -170,9 +163,7 @@ class LSHHasher:
         if arr.ndim != 2:
             raise ValueError("Batch input must be a 2D array")
         if arr.shape[1] != self.dim:
-            raise ValueError(
-                f"Expected vectors of dimension {self.dim}, received {arr.shape[1]}"
-            )
+            raise ValueError(f"Expected vectors of dimension {self.dim}, received {arr.shape[1]}")
 
         # Hash each vector in the batch
         return [self.hash_vector(vec) for vec in arr]
@@ -251,8 +242,6 @@ class LSHHasher:
 
         # Check dimension matches expected
         if vec.ndim != 1 or vec.shape[0] != self.dim:
-            raise ValueError(
-                f"Expected vector of dimension {self.dim}, received {vec.shape}"
-            )
+            raise ValueError(f"Expected vector of dimension {self.dim}, received {vec.shape}")
 
         return vec

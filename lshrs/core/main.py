@@ -30,11 +30,10 @@ from __future__ import annotations
 import json
 import logging
 import math
-
-# import pickle
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 from threading import Lock
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
+from typing import Any, Optional, Union
 
 import numpy as np
 
@@ -50,10 +49,10 @@ logger = logging.getLogger(__name__)
 VectorFetchFn = Callable[[Sequence[int]], np.ndarray]
 
 # List of (index, similarity_score) tuples returned by similarity queries
-CandidateScores = List[Tuple[int, float]]
+CandidateScores = list[tuple[int, float]]
 
 # Generic loader function that yields (indices, vectors) batches
-Loader = Callable[..., Iterable[Tuple[Sequence[int], np.ndarray]]]
+Loader = Callable[..., Iterable[tuple[Sequence[int], np.ndarray]]]
 
 
 class LSHRS:
@@ -201,9 +200,7 @@ class LSHRS:
         # Uses probability theory to find optimal configuration for target similarity
         auto_config = num_bands is None or rows_per_band is None
         if auto_config:
-            num_bands, rows_per_band = get_optimal_config(
-                num_perm, similarity_threshold
-            )
+            num_bands, rows_per_band = get_optimal_config(num_perm, similarity_threshold)
 
         # Type narrowing for mypy - guaranteed non-None after this
         if num_bands is None or rows_per_band is None:
@@ -215,8 +212,7 @@ class LSHRS:
         # Validate band/row configuration matches total hash bits
         if num_bands * rows_per_band != num_perm:
             raise ValueError(
-                "num_bands * rows_per_band must equal num_perm "
-                f"(received {num_bands} * {rows_per_band} != {num_perm})"
+                f"num_bands * rows_per_band must equal num_perm (received {num_bands} * {rows_per_band} != {num_perm})"
             )
 
         # Store core parameters
@@ -244,11 +240,11 @@ class LSHRS:
         )
 
         # Initialize operation buffer for batch processing
-        self._buffer: List[BucketOperation] = []
+        self._buffer: list[BucketOperation] = []
         self._buffer_lock = Lock()
 
         # Store configuration for persistence and introspection
-        self._config: Dict[str, Any] = {
+        self._config: dict[str, Any] = {
             "dim": dim,
             "num_perm": num_perm,
             "num_bands": num_bands,
@@ -259,7 +255,7 @@ class LSHRS:
         }
 
         # Store Redis config separately for potential override during load
-        self._redis_config: Dict[str, Any] = {
+        self._redis_config: dict[str, Any] = {
             "host": redis_host,
             "port": redis_port,
             "db": redis_db,
@@ -278,7 +274,7 @@ class LSHRS:
         self.flush()
         self._storage.close()
 
-    def __enter__(self) -> "LSHRS":
+    def __enter__(self) -> LSHRS:
         """
         Enter runtime context for the LSHRS instance.
 
@@ -316,9 +312,7 @@ class LSHRS:
     # Public ingestion API
     # ---------------------------------------------------------------------
 
-    def create_signatures(
-        self, *, format: str = "postgres", **loader_kwargs: Any
-    ) -> None:
+    def create_signatures(self, *, format: str = "postgres", **loader_kwargs: Any) -> None:
         """
         Bulk-ingest vectors using one of the built-in IO helpers.
 
@@ -445,9 +439,7 @@ class LSHRS:
                 self._buffer[0:0] = ops_to_flush
             raise
 
-    def index(
-        self, indices: Sequence[int], vectors: Optional[np.ndarray] = None
-    ) -> None:
+    def index(self, indices: Sequence[int], vectors: Optional[np.ndarray] = None) -> None:
         """
         Batch-ingest vectors by hashing and storing them in Redis buckets.
 
@@ -511,9 +503,7 @@ class LSHRS:
         # Validate vector array shape and type
         arr = np.asarray(vectors, dtype=np.float32)
         if arr.ndim != 2 or arr.shape[1] != self._dim:
-            raise ValueError(
-                f"Vectors must have shape (n, {self._dim}); received {arr.shape}"
-            )
+            raise ValueError(f"Vectors must have shape (n, {self._dim}); received {arr.shape}")
         if arr.shape[0] != len(indices):
             raise ValueError(
                 "Number of vectors does not match number of indices "
@@ -521,7 +511,7 @@ class LSHRS:
             )
 
         # Index each vector
-        for idx, vec in zip(indices, arr):
+        for idx, vec in zip(indices, arr, strict=True):
             self.ingest(int(idx), vec)
 
         # Force flush to make vectors immediately searchable
@@ -537,7 +527,7 @@ class LSHRS:
         *,
         top_k: Optional[int] = 10,
         top_p: Optional[float] = None,
-    ) -> Union[List[int], CandidateScores]:
+    ) -> Union[list[int], CandidateScores]:
         """
         Retrieve candidates similar to the query vector.
 
@@ -645,9 +635,7 @@ class LSHRS:
         # Validate fetched vectors
         arr = np.asarray(candidate_vectors, dtype=np.float32)
         if arr.ndim != 2 or arr.shape[1] != self._dim:
-            raise ValueError(
-                f"Fetched vectors must have shape (n, {self._dim}); received {arr.shape}"
-            )
+            raise ValueError(f"Fetched vectors must have shape (n, {self._dim}); received {arr.shape}")
         if arr.shape[0] != len(candidate_indices):
             raise ValueError(
                 "vector_fetch_fn returned mismatched batch size "
@@ -656,9 +644,7 @@ class LSHRS:
 
         # Compute cosine similarities and sort
         similarities = top_k_cosine(query_vector, arr, k=len(candidate_indices))
-        ordered_scores = [
-            (candidate_indices[pos], score) for pos, score in similarities
-        ]
+        ordered_scores = [(candidate_indices[pos], score) for pos, score in similarities]
 
         # Apply top-p cutoff (return top p% of candidates)
         limit = max(1, math.ceil(len(ordered_scores) * top_p))
@@ -671,7 +657,7 @@ class LSHRS:
 
         return ordered_scores[:limit]
 
-    def get_top_k(self, vector: np.ndarray, topk: int = 10) -> List[int]:
+    def get_top_k(self, vector: np.ndarray, topk: int = 10) -> list[int]:
         """
         Convenience wrapper for pure top-k retrieval without reranking.
 
@@ -792,10 +778,7 @@ class LSHRS:
         Consider rebuilding the index periodically instead of many deletions.
         """
         # Normalize to list for consistent handling
-        if isinstance(indices, int):
-            to_remove = [indices]
-        else:
-            to_remove = [int(idx) for idx in indices]
+        to_remove = [indices] if isinstance(indices, int) else [int(idx) for idx in indices]
 
         # Delegate to storage layer
         self._storage.remove_indices(to_remove)
@@ -812,7 +795,7 @@ class LSHRS:
         # Delete all Redis keys with our prefix
         self._storage.clear()
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         """
         Return current configuration snapshot for monitoring and debugging.
 
@@ -916,10 +899,10 @@ class LSHRS:
         cls,
         path: Union[str, Path],
         *,
-        redis_config: Optional[Dict[str, Any]] = None,
+        redis_config: Optional[dict[str, Any]] = None,
         vector_fetch_fn: Optional[VectorFetchFn] = None,
         storage: Optional[RedisStorage] = None,
-    ) -> "LSHRS":
+    ) -> LSHRS:
         """
         Restore an LSHRS instance from a directory saved via save_to_disk().
 
@@ -957,7 +940,7 @@ class LSHRS:
             raise FileNotFoundError(f"Directory not found: {input_dir}")
 
         # 1. Load metadata
-        with open(input_dir / "metadata.json", "r") as f:
+        with open(input_dir / "metadata.json") as f:
             metadata = json.load(f)
 
         # Basic version check (forward compatibility warning could go here)
@@ -995,9 +978,7 @@ class LSHRS:
         # 2. Load projections
         with np.load(input_dir / "projections.npz") as data:
             # Files in .npz are named arr_0, arr_1, ... by default when using *args
-            instance._hasher.projections = [
-                data[f"arr_{i}"].astype(np.float32) for i in range(len(data.files))
-            ]
+            instance._hasher.projections = [data[f"arr_{i}"].astype(np.float32) for i in range(len(data.files))]
 
         return instance
 
@@ -1005,7 +986,7 @@ class LSHRS:
     # Pickle protocol
     # ---------------------------------------------------------------------
 
-    def __getstate__(self) -> Dict[str, Any]:
+    def __getstate__(self) -> dict[str, Any]:
         """
         Produce a minimal, pickle-friendly representation of the instance suitable for serialization.
 
@@ -1023,13 +1004,10 @@ class LSHRS:
         return {
             "config": self._config.copy(),
             "redis_config": self._redis_config.copy(),
-            "projections": [
-                np.asarray(matrix, dtype=np.float32)
-                for matrix in self._hasher.projections
-            ],
+            "projections": [np.asarray(matrix, dtype=np.float32) for matrix in self._hasher.projections],
         }
 
-    def __setstate__(self, state: Dict[str, Any]) -> None:
+    def __setstate__(self, state: dict[str, Any]) -> None:
         """
         Restore instance from pickled state.
 
@@ -1063,9 +1041,7 @@ class LSHRS:
         self.__dict__ = restored.__dict__
 
         # Restore saved projection matrices
-        self._hasher.projections = [
-            np.asarray(matrix, dtype=np.float32) for matrix in state["projections"]
-        ]
+        self._hasher.projections = [np.asarray(matrix, dtype=np.float32) for matrix in state["projections"]]
 
     # ---------------------------------------------------------------------
     # Internal helpers
@@ -1101,19 +1077,15 @@ class LSHRS:
 
         # Validate dimension
         if arr.shape[0] != self._dim:
-            raise ValueError(
-                f"Vector must have dimension {self._dim}; received {arr.shape[0]}"
-            )
+            raise ValueError(f"Vector must have dimension {self._dim}; received {arr.shape[0]}")
 
         # Zero vector check - norm is undefined/zero, cannot be used for cosine similarity
         if np.allclose(arr, 0.0, atol=1e-8):
-            raise ValueError(
-                "Cannot index zero vector - norm undefined. Check embeddings for corruption."
-            )
+            raise ValueError("Cannot index zero vector - norm undefined. Check embeddings for corruption.")
 
         return arr
 
-    def _candidate_counts(self, query_vector: np.ndarray) -> Dict[int, int]:
+    def _candidate_counts(self, query_vector: np.ndarray) -> dict[int, int]:
         """
         Compute per-candidate counts of LSH band collisions for a prepared query vector.
 
@@ -1129,7 +1101,7 @@ class LSHRS:
         signatures = self._hasher.hash_vector(query_vector)
 
         # Count collisions across all bands
-        counts: Dict[int, int] = {}
+        counts: dict[int, int] = {}
         for band_id, hash_val in enumerate(signatures):
             # Get all indices in this band's bucket
             for candidate in self._storage.get_bucket(band_id, hash_val):
@@ -1181,9 +1153,7 @@ class LSHRS:
             RuntimeError: If `vector_fetch_fn` is not configured.
         """
         if self._vector_fetch_fn is None:
-            raise RuntimeError(
-                "vector_fetch_fn must be supplied for operations requiring reranking"
-            )
+            raise RuntimeError("vector_fetch_fn must be supplied for operations requiring reranking")
         return self._vector_fetch_fn
 
     def _resolve_loader(self, format: str) -> Loader:

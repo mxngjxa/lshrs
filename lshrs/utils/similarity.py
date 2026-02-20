@@ -16,15 +16,14 @@ Key functions:
 
 from __future__ import annotations
 
-from typing import Iterable, Sequence
+from collections.abc import Sequence
+
 import numpy as np
 
 from lshrs.utils.norm import l2_norm
 
 
-def cosine_similarity(
-    query: np.ndarray, candidates: Sequence[np.ndarray]
-) -> np.ndarray:
+def cosine_similarity(query: np.ndarray, candidates: Sequence[np.ndarray]) -> np.ndarray:
     """
     Compute cosine similarity between a query vector and multiple candidate vectors.
 
@@ -96,7 +95,7 @@ def top_k_cosine(
     candidates: Sequence[np.ndarray],
     *,
     k: int,
-) -> Iterable[tuple[int, float]]:
+) -> list[tuple[int, float]]:
     """
     Find the top-k most similar vectors to query using cosine similarity.
 

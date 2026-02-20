@@ -34,12 +34,8 @@ def test_lsh_hash_vector_deterministic_and_shapes():
     dim = 4
     vector = np.arange(dim, dtype=np.float32)
 
-    hasher_a = LSHHasher(
-        num_bands=num_bands, rows_per_band=rows_per_band, dim=dim, seed=123
-    )
-    hasher_b = LSHHasher(
-        num_bands=num_bands, rows_per_band=rows_per_band, dim=dim, seed=123
-    )
+    hasher_a = LSHHasher(num_bands=num_bands, rows_per_band=rows_per_band, dim=dim, seed=123)
+    hasher_b = LSHHasher(num_bands=num_bands, rows_per_band=rows_per_band, dim=dim, seed=123)
 
     signatures_a = hasher_a.hash_vector(vector)
     signatures_b = hasher_b.hash_vector(vector)
@@ -94,7 +90,7 @@ def test_lsh_hash_batch_validates_input():
 
 
 def test_hash_signatures_normalizes_iterables():
-    signatures = HashSignatures((b"\x00\x01", bytearray(b"\x02\x03")))
+    signatures = HashSignatures((b"\x00\x01", bytearray(b"\x02\x03")))  # type: ignore[arg-type]
 
     assert signatures.as_tuple() == (b"\x00\x01", b"\x02\x03")
     assert list(signatures) == [b"\x00\x01", b"\x02\x03"]
