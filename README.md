@@ -1,6 +1,11 @@
 # LSHRS
 
-[![CI](https://github.com/mxngjxa/lshrs/actions/workflows/ci.yml/badge.svg)](https://github.com/mxngjxa/lshrs/actions/workflows/ci.yml) [![Publish to PyPI](https://github.com/mxngjxa/lshrs/actions/workflows/cd.yml/badge.svg)](https://github.com/mxngjxa/lshrs/actions/workflows/cd.yml) [![PyPI version](https://img.shields.io/pypi/v/lshrs.svg)](https://pypi.org/project/lshrs/) [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/) [![MIT License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE) [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![CI](https://github.com/mxngjxa/lshrs/actions/workflows/ci.yml/badge.svg)](https://github.com/mxngjxa/lshrs/actions/workflows/ci.yml) 
+[![Publish to PyPI](https://github.com/mxngjxa/lshrs/actions/workflows/cd.yml/badge.svg)](https://github.com/mxngjxa/lshrs/actions/workflows/cd.yml) 
+[![PyPI version](https://img.shields.io/pypi/v/lshrs.svg)](https://pypi.org/project/lshrs/) 
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/) 
+[![MIT License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE) 
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
 Redis-backed locality-sensitive hashing toolkit that stores bucket membership in Redis while keeping the heavy vector payloads in your primary datastore.
 
