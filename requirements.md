@@ -1,12 +1,14 @@
 # LSHRS - Redis-backed Locality Sensitive Hashing Requirements
 
 ## Executive Summary
-LSHRS is a high-performance, Redis-backed Locality Sensitive Hashing (LSH) package designed to replace dedicated vector databases with a lightweight hash-based lookup layer that integrates with existing databases (PostgreSQL, MySQL, etc.). The system provides fast approximate nearest neighbor search for large-scale vector similarity queries.
+LSHRS is a Redis-backed Locality Sensitive Hashing (LSH) package that adds cosine approximate-nearest-neighbor search to an existing datastore (PostgreSQL/pgvector, Parquet, object store, etc.) **without copying vectors into a dedicated vector database.** Redis holds only a compact `bucket -> set-of-indices` index — roughly two orders of magnitude smaller than the vectors it indexes — while the heavy vector payloads stay in the system of record and are fetched on demand for optional cosine reranking.
+
+It is not positioned to beat a dedicated vector DB or RediSearch HNSW on recall or latency at scale. Its advantages are orthogonal: no data migration, a tiny Redis footprint, cheap exact deletes, and bring-your-own-datastore integration.
 
 ## Core Objectives
 
 ### Primary Goals
-1. **Replace Vector Databases**: Provide a lightweight alternative to dedicated vector databases using Redis for hash buckets and existing databases for vector storage
+1. **Augment, Don't Replace, Your Datastore**: Add cosine ANN over the data you already store by keeping only a tiny LSH index in Redis and leaving vectors in the existing database; not a drop-in replacement for a dedicated vector DB at peak recall/QPS
 2. **Integration-First Design**: Seamlessly work with existing database infrastructure without requiring data migration
 3. **High Performance**: Support query latency < 100ms and indexing throughput > 10k vectors/sec on consumer hardware
 4. **Simplicity**: Minimal, clean API with sensible defaults and minimal configuration overhead
@@ -68,6 +70,10 @@ class LSHRS:
 ## Non-Functional Requirements
 
 ### Performance Targets
+
+> [!NOTE]
+> These are **design targets, not measured benchmarks.** See [Performance Validation](#performance-validation) — no benchmark currently ships, so none of the figures below have been validated.
+
 | Metric | Target | Conditions |
 |--------|--------|------------|
 | Query Latency (p95) | < 100ms | 6.4M vectors, consumer laptop |
@@ -107,11 +113,32 @@ class LSHRS:
 ### Package Structure
 ```
 lshrs/
-├── __init__.py      # Main LSHRS class
-├── hasher.py        # LSH hashing implementation  
-├── storage.py       # Redis backend
-└── similarity.py    # Cosine similarity utilities
+├── __init__.py          # Public exports (LSHRS, etc.)
+├── core/
+│   ├── __init__.py
+│   └── main.py          # Main LSHRS orchestration class
+├── hash/
+│   ├── __init__.py
+│   └── lsh.py           # Random-projection LSH hashing implementation
+├── storage/
+│   ├── __init__.py
+│   └── redis.py         # Redis backend (bucket membership)
+├── io/
+│   ├── __init__.py
+│   ├── postgres.py      # PostgreSQL streaming loader
+│   └── parquet.py       # Parquet streaming loader
+├── utils/
+│   ├── __init__.py
+│   ├── similarity.py    # Cosine similarity utilities
+│   ├── norm.py          # Vector normalization helpers
+│   └── br.py            # Band/row optimization + collision probability
+└── _config/
+    ├── __init__.py
+    └── config.py        # Configuration defaults
 ```
+
+> [!NOTE]
+> Earlier drafts of this document described a flat `hasher.py` / `storage.py` / `similarity.py` layout. The shipping package uses the nested-package layout shown above; modules are organized under `core/`, `hash/`, `storage/`, `io/`, `utils/`, and `_config/`.
 
 ### Dependencies
 - **Core**: numpy, redis-py
@@ -156,16 +183,20 @@ lsh:state -> Serialized hasher state
 ## Success Criteria
 
 ### MVP Features
-- [x] Batch indexing of 6.4M vectors
-- [x] Query latency < 100ms
 - [x] Top-K and Top-P retrieval
 - [x] PostgreSQL integration example
 - [x] State persistence
+- [ ] **TODO (aspirational):** Validated batch indexing of 6.4M vectors — no benchmark currently ships, so this target is unverified.
+- [ ] **TODO (aspirational):** Verified query latency < 100ms — no benchmark currently ships, so this target is unverified.
 
 ### Performance Validation
-- Benchmark on Wikipedia dataset
-- Comparison with dedicated vector databases
-- Memory and CPU profiling
+
+> [!IMPORTANT]
+> The performance items below are **aspirational targets, not measured results.** No benchmark currently ships with the package, and the Wikipedia-scale validation has not yet been performed. Treat the numbers in the [Performance Targets](#performance-targets) table as design goals until a benchmark suite lands.
+
+- [ ] **TODO:** Benchmark on the Wikipedia dataset
+- [ ] **TODO:** Comparison with dedicated vector databases
+- [ ] **TODO:** Memory and CPU profiling
 
 ## Future Considerations (Out of Scope for v1)
 
@@ -185,7 +216,7 @@ DEFAULT_CONFIG = {
     'num_perm': 128,
     'num_bands': None,  # Auto-optimize
     'rows_per_band': None,  # Auto-optimize
-    'buffer_size': 10000,
+    'buffer_size': 10000,  # NOTE: constructor default is 10,000 (not 8912)
     'seed': 42,
 }
 ```
