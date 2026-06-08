@@ -37,6 +37,20 @@ wheels = [
 ]
 
 [[package]]
+name = "fakeredis"
+version = "2.36.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "redis" },
+    { name = "sortedcontainers" },
+    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1f/48/c08ec5c1d0d16e15247787b83d9b2a9cb1f1a27514cd85407956040cc383/fakeredis-2.36.1.tar.gz", hash = "sha256:7240567f4e1c07a2b3d30c0fd88e5e598e948c2e25850a560727de1d1d3dc946", size = 210959, upload-time = "2026-06-07T16:11:50.033Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c7/94/1f993adaa735f2922d991e1e66e64f2de1bf044bee601d03dde5b71513d4/fakeredis-2.36.1-py3-none-any.whl", hash = "sha256:220a77bebb985c59076951336478c4c983be76b5d9f44d3011dd61171d082062", size = 139357, upload-time = "2026-06-07T16:11:48.418Z" },
+]
+
+[[package]]
 name = "iniconfig"
 version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -67,6 +81,7 @@ postgres = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "fakeredis" },
     { name = "pytest" },
     { name = "pytest-smoke" },
     { name = "ruff" },
@@ -85,6 +100,7 @@ provides-extras = ["postgres", "parquet"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "fakeredis", specifier = ">=2.36.1" },
     { name = "pytest", specifier = ">=9.0.1" },
     { name = "pytest-smoke", specifier = ">=0.10.0" },
     { name = "ruff", specifier = ">=0.14.5" },
@@ -537,6 +553,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/ac/70/64b4d7ca92f9cf2e6fc6aaa2eecf80bb9b6b985043a9583f32f8177ea122/scipy-1.16.3-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:ffa6eea95283b2b8079b821dc11f50a17d0571c92b43e2b5b12764dc5f9b285d", size = 38802779, upload-time = "2025-10-28T17:37:59.393Z" },
     { url = "https://files.pythonhosted.org/packages/61/82/8d0e39f62764cce5ffd5284131e109f07cf8955aef9ab8ed4e3aa5e30539/scipy-1.16.3-cp314-cp314t-win_amd64.whl", hash = "sha256:d9f48cafc7ce94cf9b15c6bffdc443a81a27bf7075cf2dcd5c8b40f85d10c4e7", size = 39471128, upload-time = "2025-10-28T17:38:05.259Z" },
     { url = "https://files.pythonhosted.org/packages/64/47/a494741db7280eae6dc033510c319e34d42dd41b7ac0c7ead39354d1a2b5/scipy-1.16.3-cp314-cp314t-win_arm64.whl", hash = "sha256:21d9d6b197227a12dcbf9633320a4e34c6b0e51c57268df255a0942983bac562", size = 26464127, upload-time = "2025-10-28T17:38:11.34Z" },
+]
+
+[[package]]
+name = "sortedcontainers"
+version = "2.4.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e8/c4/ba2f8066cceb6f23394729afe52f3bf7adec04bf9ed2c820b39e19299111/sortedcontainers-2.4.0.tar.gz", hash = "sha256:25caa5a06cc30b6b83d11423433f65d1f9d76c4c6a0c90e3379eaa43b9bfdb88", size = 30594, upload-time = "2021-05-16T22:03:42.897Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/32/46/9cb0e58b2deb7f82b84065f37f3bffeb12413f947f9388e4cac22c4621ce/sortedcontainers-2.4.0-py2.py3-none-any.whl", hash = "sha256:a163dcaede0f1c021485e957a39245190e74249897e2ae4b2aa38595db237ee0", size = 29575, upload-time = "2021-05-16T22:03:41.177Z" },
 ]
 
 [[package]]

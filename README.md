@@ -25,6 +25,7 @@ Redis-backed locality-sensitive hashing toolkit that stores bucket membership in
 - [Querying Modes](#querying-modes)
 - [Persistence & Lifecycle](#persistence--lifecycle)
 - [Performance & Scaling Guidelines](#performance--scaling-guidelines)
+- [Benchmarks](#benchmarks)
 - [Troubleshooting](#troubleshooting)
 - [API Surface Summary](#api-surface-summary)
 - [Development & Testing](#development--testing)
@@ -215,6 +216,27 @@ Supporting helpers:
 - **Batch ingestion**: When indexing large volumes, route operations through [`LSHRS.index()`](lshrs/core/main.py:399) to let [`RedisStorage.batch_add()`](lshrs/storage/redis.py:340) coalesce writes.
 - **Monitor bucket sizes**: Large buckets indicate low selectivity. Adjust `num_perm`, `num_bands`, or the similarity threshold to trade precision vs. recall.
 - **Pipeline warmup**: Flush outstanding operations with [`LSHRS._flush_buffer()`](lshrs/core/main.py:1177) (indirectly called) before measuring latency or persisting state.
+
+## Benchmarks
+
+A reproducible benchmark harness lives in [`benchmarks/`](benchmarks/). It
+generates synthetic random unit vectors and measures index build throughput,
+top-k / top-p query latency (p50/p95), the Redis footprint asymmetry behind the
+"~100x smaller" claim (raw `N x dim x 4` bytes vs the bucket index), and delete
+latency.
+
+```bash
+# Runs anywhere via in-memory fakeredis (functional timings, estimated footprint)
+uv run python benchmarks/run_benchmark.py --n 5000 --dim 256 --num-perm 128
+
+# Use a real Redis server for measured memory (MEMORY USAGE / INFO memory)
+uv run python benchmarks/run_benchmark.py --real-redis --redis-host localhost
+```
+
+Results print as a markdown table and are written to
+[`benchmarks/RESULTS_TEMPLATE.md`](benchmarks/RESULTS_TEMPLATE.md). See
+[`benchmarks/README.md`](benchmarks/README.md) for full details. All numbers are
+machine-dependent.
 
 ## Troubleshooting
 
