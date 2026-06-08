@@ -27,14 +27,19 @@ Typical usage:
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from typing import Any, Union
 
 import redis
+import redis.cluster
 
 # Type alias for clarity in batch operations
 # Each operation is: (band_id, hash_signature, vector_index)
 BucketOperation = tuple[int, bytes, int]
+
+# A startup node may be given as a (host, port) tuple or a {"host", "port"} mapping.
+StartupNode = Union[tuple[str, int], Mapping[str, Any]]
 
 
 class RedisStorage:
@@ -93,6 +98,8 @@ class RedisStorage:
         decode_responses: bool = False,
         prefix: str = "lsh",
         max_connections: int = 50,
+        cluster: bool = False,
+        startup_nodes: Sequence[StartupNode] | None = None,
     ) -> None:
         """
         Initialize Redis connection for LSH bucket storage.
@@ -116,6 +123,17 @@ class RedisStorage:
                    Must not contain colons (:) to avoid key parsing issues.
             max_connections: Maximum number of connections in the pool.
                            Default is 50.
+            cluster: If True, connect to a Redis Cluster using
+                    redis.cluster.RedisCluster instead of a single-node
+                    redis.Redis client + ConnectionPool. When enabled, keys
+                    are generated with band-aware hash tags so that all buckets
+                    of a band co-locate on a single slot/node (see bucket_key).
+                    Default (False) preserves exact single-node behavior and
+                    key formats.
+            startup_nodes: Optional sequence of cluster seed nodes, each a
+                          (host, port) tuple or a mapping with "host"/"port"
+                          keys. Only used when cluster=True. If omitted, the
+                          single host/port pair is used as the seed node.
 
         Example:
             >>> # Local development
@@ -140,31 +158,95 @@ class RedisStorage:
         # Store prefix for key generation
         self.prefix = prefix
 
-        # Initialize redis-py connection pool
-        # Using a pool is more efficient for multi-threaded applications
-        self._pool = redis.ConnectionPool(
-            host=host,
-            port=port,
-            db=db,
-            password=password,
-            decode_responses=decode_responses,
-            max_connections=max_connections,
-            socket_connect_timeout=5,
-            socket_timeout=5,
-            retry_on_timeout=True,
-        )
+        # Track whether band-aware hash-tag key scheme is active.
+        # Cluster mode wraps the band id (and member index id) in {...} so that
+        # Redis Cluster routes co-located keys to the same slot. Single-node
+        # mode keeps the legacy flat key format to avoid breaking existing
+        # indices.
+        self.cluster = cluster
 
-        # Initialize client using the pool
-        self._client = redis.Redis(connection_pool=self._pool)
+        if cluster:
+            # Build the list of seed nodes for the cluster client.
+            nodes = self._build_cluster_nodes(startup_nodes, host, port)
+
+            # No ConnectionPool attribute in cluster mode; RedisCluster manages
+            # its own per-node pools internally.
+            self._pool = None
+
+            # RedisCluster discovers the full topology from the seed node(s).
+            self._client = redis.cluster.RedisCluster(
+                startup_nodes=nodes,
+                password=password,
+                decode_responses=decode_responses,
+                max_connections=max_connections,
+                socket_connect_timeout=5,
+                socket_timeout=5,
+            )
+        else:
+            # Initialize redis-py connection pool
+            # Using a pool is more efficient for multi-threaded applications
+            self._pool = redis.ConnectionPool(
+                host=host,
+                port=port,
+                db=db,
+                password=password,
+                decode_responses=decode_responses,
+                max_connections=max_connections,
+                socket_connect_timeout=5,
+                socket_timeout=5,
+                retry_on_timeout=True,
+            )
+
+            # Initialize client using the pool
+            self._client = redis.Redis(connection_pool=self._pool)
+
+    @staticmethod
+    def _build_cluster_nodes(
+        startup_nodes: Sequence[StartupNode] | None,
+        host: str,
+        port: int,
+    ) -> list[redis.cluster.ClusterNode]:
+        """
+        Normalize startup-node specs into a list of redis.cluster.ClusterNode.
+
+        Accepts (host, port) tuples or mappings with "host"/"port" keys. When no
+        startup nodes are supplied, falls back to the single host/port seed.
+
+        Args:
+            startup_nodes: Optional sequence of seed-node specs, or None.
+            host: Fallback seed host used when startup_nodes is empty/None.
+            port: Fallback seed port used when startup_nodes is empty/None.
+
+        Returns:
+            List of ClusterNode instances suitable for RedisCluster(startup_nodes=...).
+        """
+        if not startup_nodes:
+            return [redis.cluster.ClusterNode(host, port)]
+
+        nodes: list[redis.cluster.ClusterNode] = []
+        for node in startup_nodes:
+            if isinstance(node, Mapping):
+                nodes.append(redis.cluster.ClusterNode(node["host"], int(node["port"])))
+            else:
+                node_host, node_port = node
+                nodes.append(redis.cluster.ClusterNode(node_host, int(node_port)))
+        return nodes
 
     def close(self) -> None:
         """
         Close the Redis connection pool and release network resources.
 
         If a connection pool was created, disconnects all pooled connections; calling this when no pool exists is a no-op.
+
+        In cluster mode there is no single ConnectionPool: the RedisCluster
+        client is closed directly, which tears down its per-node pools.
         """
-        if hasattr(self, "_pool"):
+        if getattr(self, "_pool", None) is not None:
             self._pool.disconnect()
+        elif getattr(self, "cluster", False):
+            client = getattr(self, "_client", None)
+            if client is not None:
+                client.close()
 
     def __del__(self) -> None:
         """
@@ -175,12 +257,13 @@ class RedisStorage:
         self.close()
 
     @property
-    def client(self) -> redis.Redis:  # pragma: no cover - simple accessor
+    def client(self) -> redis.Redis | redis.cluster.RedisCluster:  # pragma: no cover - simple accessor
         """
         Expose the underlying redis-py client for advanced or unwrapped operations.
 
         Returns:
-            redis.Redis: The internal Redis client instance used by this storage backend.
+            The internal client instance: redis.Redis in single-node mode or
+            redis.cluster.RedisCluster in cluster mode.
         """
         return self._client
 
@@ -219,10 +302,53 @@ class RedisStorage:
             - Colon separators enable Redis keyspace notifications filtering
             - Hex encoding makes keys grep-able in Redis logs
             - Band ID comes before hash for efficient pattern matching
+
+        Cluster mode (band-aware sharding):
+            When cluster=True, the band id is wrapped in a Redis hash tag:
+                {prefix}:{<band_id>}:bucket:{hash_hex}
+            e.g. "search:{5}:bucket:abcdef". Redis Cluster computes the slot
+            from the substring inside the first {...}, so every bucket of a
+            given band maps to the same slot/node. This co-locates per-band
+            pipelines and SCANs on one node while spreading distinct bands
+            across the cluster. Single-node mode keeps the legacy flat format.
         """
         # Convert binary hash to hex string (e.g., b'\xff' -> 'ff')
         # hex() method is faster than binascii.hexlify
+        if self.cluster:
+            # Wrap band id in {} so it becomes the cluster hash tag.
+            return f"{self.prefix}:{{{band_id}}}:bucket:{hash_val.hex()}"
         return f"{self.prefix}:{band_id}:bucket:{hash_val.hex()}"
+
+    def member_key(self, index: int) -> str:
+        """
+        Compute the Redis key for a member's reverse-index set.
+
+        The member key tracks which buckets an indexed vector participates in,
+        enabling efficient reverse lookups. Key format:
+            {prefix}:member:{index}
+
+        In cluster mode the index is wrapped in a hash tag so the member's
+        reverse-index set always lands on a deterministic, reachable slot:
+            {prefix}:member:{<index>}
+        e.g. "search:member:{42}".
+
+        Args:
+            index: The vector's index in the primary store.
+
+        Returns:
+            Redis key string for the member's reverse-index set.
+
+        Example:
+            >>> storage = RedisStorage(prefix="search")
+            >>> storage.member_key(42)
+            'search:member:42'
+            >>> cluster = RedisStorage(prefix="search", cluster=True)
+            >>> cluster.member_key(42)
+            'search:member:{42}'
+        """
+        if self.cluster:
+            return f"{self.prefix}:member:{{{index}}}"
+        return f"{self.prefix}:member:{index}"
 
     def add_to_bucket(self, band_id: int, hash_val: bytes, index: int) -> None:
         """
@@ -505,9 +631,14 @@ class RedisStorage:
             # All SREM commands execute when pipeline exits
 
     @contextmanager
-    def pipeline(self) -> Iterator[redis.client.Pipeline]:  # type: ignore[name-defined]
+    def pipeline(self) -> Iterator[Any]:
         """
         Context manager for Redis pipelines with automatic execution.
+
+        In cluster mode this yields a redis.cluster.ClusterPipeline, which
+        transparently routes each buffered command to the correct node/slot
+        (commands spanning multiple slots are grouped per node rather than
+        rejected). In single-node mode it yields a redis.client.Pipeline.
 
         Provides a safe, convenient way to use Redis pipelining. The pipeline
         automatically executes all buffered commands on exit and resets itself
@@ -656,10 +787,47 @@ class RedisStorage:
         # Collect all matching keys
         # scan_iter returns generator, convert to list for DELETE command
         # SCAN is safe (doesn't block Redis) but may return duplicates
+        # In cluster mode, RedisCluster.scan_iter fans out across all primaries.
         keys = list(self._client.scan_iter(match=pattern))
 
-        # Delete all keys at once
-        # DELETE is atomic: all keys removed in single operation
-        # No-op if keys list is empty (no error)
-        if keys:
+        if not keys:
+            return
+
+        if self.cluster:
+            # A single multi-key DELETE would span multiple hash slots and raise
+            # a CROSSSLOT error in Redis Cluster. Route deletes per node via a
+            # cluster pipeline, which groups commands by their target slot/node.
+            with self.pipeline() as pipe:
+                for key in keys:
+                    pipe.delete(key)
+        else:
+            # Delete all keys at once
+            # DELETE is atomic: all keys removed in single operation
             self._client.delete(*keys)
+
+    def bucket_count(self) -> int:
+        """
+        Count the number of bucket keys currently stored under the prefix.
+
+        Scans the keyspace for keys matching the bucket pattern and returns
+        how many exist. In cluster mode the scan fans out across all primary
+        nodes so the count reflects the whole cluster.
+
+        Returns:
+            Total number of bucket keys (one per populated (band, hash) pair).
+        """
+        pattern = f"{self.prefix}:*:bucket:*"
+        return sum(1 for _ in self._client.scan_iter(match=pattern))
+
+    def member_count(self) -> int:
+        """
+        Count the number of member reverse-index keys stored under the prefix.
+
+        Scans the keyspace for keys matching the member pattern and returns how
+        many exist. In cluster mode the scan fans out across all primary nodes.
+
+        Returns:
+            Total number of member reverse-index keys.
+        """
+        pattern = f"{self.prefix}:member:*"
+        return sum(1 for _ in self._client.scan_iter(match=pattern))

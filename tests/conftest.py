@@ -16,6 +16,9 @@ class MockStorage(RedisStorage):
     """Thread-safe in-memory mock that records operations and supports real bucket queries."""
 
     def __init__(self, *, fail_on_flush: bool = False) -> None:
+        # Single-node key scheme (no cluster hash tags) for the mock.
+        self.prefix = "lsh"
+        self.cluster = False
         # Bucket data: (band_id, hash_hex) -> set of indices
         self.data: dict[tuple[int, str], set[int]] = {}
         # Record every batch_add call for assertion
@@ -66,6 +69,13 @@ class MockStorage(RedisStorage):
 
     def close(self) -> None:
         self.close_called = True
+
+    def bucket_count(self) -> int:
+        with self._lock:
+            return len([k for k, v in self.data.items() if v])
+
+    def member_count(self) -> int:
+        return 0
 
     @property
     def total_operations(self) -> int:
