@@ -934,8 +934,10 @@ class LSHRS:
         if "password" in sanitized_redis_config:
             sanitized_redis_config["password"] = "<REDACTED>"
 
+        from lshrs import __version__
+
         metadata = {
-            "version": "0.1.1a4",
+            "version": __version__,
             "config": self._config,
             "redis_config": sanitized_redis_config,
         }

@@ -1,6 +1,6 @@
 [project]
 name = "lshrs"
-version = "0.1.1b2"
+version = "0.2.0b1"
 description = "Redis-backed Locality Sensitive Hashing toolkit for fast approximate nearest neighbor search"
 readme = "README.md"
 license = "MIT"

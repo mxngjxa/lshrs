@@ -81,7 +81,7 @@ class MockStorage(RedisStorage):
 
     def bucket_count(self) -> int:
         with self._lock:
-            return len(self.data)
+            return len([k for k, v in self.data.items() if v])
 
     def member_count(self) -> int:
         with self._lock:
@@ -89,13 +89,6 @@ class MockStorage(RedisStorage):
 
     def close(self) -> None:
         self.close_called = True
-
-    def bucket_count(self) -> int:
-        with self._lock:
-            return len([k for k, v in self.data.items() if v])
-
-    def member_count(self) -> int:
-        return 0
 
     @property
     def total_operations(self) -> int:

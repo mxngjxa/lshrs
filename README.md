@@ -30,7 +30,7 @@ Redis-backed locality-sensitive hashing toolkit that stores bucket membership in
 
 ## Positioning
 
-LSHRS adds cosine approximate-nearest-neighbor (ANN) search on top of the datastore you already run. Redis holds *only* a compact `bucket -> set-of-indices` index — roughly 100x smaller than the vectors it indexes. The vectors themselves stay external in your system of record (PostgreSQL/pgvector, Parquet, an object store, anything) and are fetched on demand, only when you opt into cosine reranking via `vector_fetch_fn`.
+LSHRS adds cosine approximate-nearest-neighbor (ANN) search on top of the datastore you already run. Redis holds *only* a compact `bucket -> set-of-indices` index — typically much smaller than the vectors it indexes, with the gap widening as embedding dimensionality grows. The vectors themselves stay external in your system of record (PostgreSQL/pgvector, Parquet, an object store, anything) and are fetched on demand, only when you opt into cosine reranking via `vector_fetch_fn`.
 
 See [docs/positioning.md](docs/positioning.md) for the full comparison (LSHRS vs datasketch vs RediSearch HNSW vs pgvector vs FAISS) and when *not* to use LSHRS.
 
@@ -153,9 +153,9 @@ Because LSHRS stores only `bucket -> set-of-indices` membership, [`LSHRS.delete(
 
 A reproducible benchmark harness lives in [`benchmarks/`](benchmarks/). It
 generates synthetic random unit vectors and measures index build throughput,
-top-k / top-p query latency (p50/p95), the Redis footprint asymmetry behind the
-"~100x smaller" claim (raw `N x dim x 4` bytes vs the bucket index), and delete
-latency.
+top-k / top-p query latency (p50/p95), the Redis footprint ratio (raw
+`N x dim x 4` bytes vs the bucket index — the ratio grows with `dim`), and
+delete latency.
 
 ```bash
 # Runs anywhere via in-memory fakeredis (functional timings, estimated footprint)
