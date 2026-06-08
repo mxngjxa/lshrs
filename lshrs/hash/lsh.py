@@ -133,6 +133,78 @@ class LSHHasher:
 
         return HashSignatures(tuple(bands))
 
+    def hash_vector_with_margins(self, vector: np.ndarray) -> tuple[HashSignatures, list[np.ndarray]]:
+        """
+        Hash a vector AND return the raw per-bit projection margins.
+
+        This is identical to :meth:`hash_vector` for the returned signatures, but it
+        additionally exposes the real-valued ``projection @ vector`` margins (before the
+        ``> 0`` threshold) for every band. These margins are required for
+        **multi-probe LSH** (Lv et al., VLDB 2007): the buckets most worth also probing
+        are those reachable by flipping the hash bits whose projection landed closest to
+        its separating hyperplane (i.e. smallest ``|margin|``), since a small perturbation
+        of the query could have placed it on the other side.
+
+        Args:
+            vector: Input vector to hash (any array-like of length ``dim``).
+
+        Returns:
+            A tuple ``(signatures, margins)`` where:
+                - ``signatures`` is the same :class:`HashSignatures` that
+                  :meth:`hash_vector` would return.
+                - ``margins`` is a list with one entry per band, each a float32 ndarray of
+                  shape ``(rows_per_band,)`` holding the signed projection value for each
+                  bit in that band. ``margins[b][r] > 0`` iff bit ``r`` of band ``b`` is set.
+
+        Example:
+            >>> hasher = LSHHasher(num_bands=2, rows_per_band=4, dim=8)
+            >>> vec = np.random.randn(8)
+            >>> sigs, margins = hasher.hash_vector_with_margins(vec)
+            >>> len(margins), margins[0].shape
+            (2, (4,))
+        """
+        vec = self._validate_vector(vector)
+
+        bands: list[bytes] = []
+        margins: list[np.ndarray] = []
+        for projection in self.projections:
+            projected = (projection @ vec).astype(np.float32)
+            margins.append(projected)
+            binary = projected > 0
+            packed = np.packbits(binary.astype(np.uint8), bitorder="little")
+            bands.append(packed.tobytes())
+
+        return HashSignatures(tuple(bands)), margins
+
+    @staticmethod
+    def flip_bit(signature: bytes, bit_index: int) -> bytes:
+        """
+        Flip a single bit of a packed signature, consistent with ``bitorder="little"``.
+
+        The hasher packs bits with ``np.packbits(..., bitorder="little")``, which means
+        bit ``i`` of the logical bit array lives in byte ``i // 8`` at position ``i % 8``
+        (least-significant bit first within each byte). This helper toggles exactly that
+        bit so the resulting bytes still map to the same Redis key scheme that
+        :meth:`RedisStorage.bucket_key` (and therefore ingestion) uses.
+
+        Args:
+            signature: Packed band signature as produced by the hasher.
+            bit_index: Zero-based logical bit position to flip.
+
+        Returns:
+            A new ``bytes`` object identical to ``signature`` except the requested bit is
+            toggled.
+
+        Raises:
+            IndexError: If ``bit_index`` falls outside the packed signature.
+        """
+        byte_index = bit_index // 8
+        if byte_index >= len(signature):
+            raise IndexError(f"bit_index {bit_index} out of range for {len(signature)}-byte signature")
+        mutable = bytearray(signature)
+        mutable[byte_index] ^= 1 << (bit_index % 8)
+        return bytes(mutable)
+
     def hash_batch(self, vectors: np.ndarray) -> list[HashSignatures]:
         """
         Hash a batch of vectors efficiently.

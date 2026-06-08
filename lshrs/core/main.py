@@ -65,8 +65,9 @@ class LSHRS:
     2. **Storage Management**: Persist hash buckets in Redis for fast retrieval
     3. **Query Processing**: Find similar vectors with optional cosine similarity reranking
 
-    The class supports both exact top-k retrieval (return k most similar) and
-    probabilistic top-p retrieval (return candidates covering p% of similarity mass).
+    The class supports both top-k retrieval (return k candidates by band
+    collisions) and top-p retrieval (return the top ceil(N*p) candidates by
+    cosine similarity, where N is the number of LSH candidates).
 
     Parameters
     ----------
@@ -168,6 +169,8 @@ class LSHRS:
         redis_password: Optional[str] = None,
         redis_prefix: str = "lsh",
         redis_max_connections: int = 50,
+        redis_cluster: bool = False,
+        redis_startup_nodes: Optional[Sequence[Any]] = None,
         decode_responses: bool = False,
         seed: int = 42,
     ) -> None:
@@ -237,6 +240,8 @@ class LSHRS:
             decode_responses=decode_responses,
             prefix=redis_prefix,
             max_connections=redis_max_connections,
+            cluster=redis_cluster,
+            startup_nodes=redis_startup_nodes,
         )
 
         # Initialize operation buffer for batch processing
@@ -263,6 +268,8 @@ class LSHRS:
             "prefix": redis_prefix,
             "decode_responses": decode_responses,
             "max_connections": redis_max_connections,
+            "cluster": redis_cluster,
+            "startup_nodes": redis_startup_nodes,
         }
 
     def close(self) -> None:
@@ -527,6 +534,7 @@ class LSHRS:
         *,
         top_k: Optional[int] = 10,
         top_p: Optional[float] = None,
+        probes: int = 0,
     ) -> Union[list[int], CandidateScores]:
         """
         Retrieve candidates similar to the query vector.
@@ -537,15 +545,16 @@ class LSHRS:
            Fast, no reranking, based purely on LSH hash matches.
 
         2. **Top-p mode** (top_p provided): Reranks candidates by cosine similarity
-           and returns enough to cover p proportion of total similarity.
-           Requires vector_fetch_fn. More accurate but slower.
+           and returns the top ceil(N*p) candidates by cosine similarity, where N
+           is the number of LSH candidates. Requires vector_fetch_fn. More
+           accurate but slower.
 
         The method:
             1. Hashes query vector to get signatures
             2. Retrieves candidates from matching buckets
             3. Counts band collisions per candidate
             4. Either returns top-k by collision count OR
-            5. Reranks by cosine similarity and applies top-p cutoff
+            5. Reranks by cosine similarity and returns the top ceil(N*p)
 
         Parameters
         ----------
@@ -558,11 +567,27 @@ class LSHRS:
             limit. None returns all candidates (use carefully!).
 
         top_p : float, optional
-            Cumulative proportion threshold in (0, 1]. When provided:
+            Count-fraction threshold in (0, 1]. When provided:
             - Candidates are reranked by cosine similarity
-            - Returns smallest prefix covering p proportion of similarity mass
-            - Example: top_p=0.1 returns top 10% most similar
+            - Returns the top ceil(N*p) candidates by cosine similarity, where N
+              is the number of LSH candidates
+            - Example: top_p=0.1 returns the top 10% of candidates
             - Requires vector_fetch_fn to be configured
+
+        probes : int, optional, default=0
+            Number of extra buckets to probe **per band** using multi-probe LSH
+            (Lv et al., VLDB 2007). With ``probes=0`` (the default) behavior is
+            identical to plain LSH: only the bucket the query hashes into is examined
+            per band. With ``probes > 0``, for each band the query-directed probe
+            sequence additionally examines up to ``probes`` neighboring buckets,
+            obtained by flipping the hash bits whose projection landed closest to its
+            hyperplane (smallest ``|margin|``). Members of those buckets are folded
+            into the same collision counts.
+
+            Tradeoff: multi-probe trades a small amount of query latency (a few extra
+            bucket lookups per band) for substantially higher recall, letting you reach
+            the recall of a many-band index with far fewer bands. Recall rises with
+            ``probes``; latency rises roughly linearly with ``probes``.
 
         Returns
         -------
@@ -592,7 +617,7 @@ class LSHRS:
         Raises
         ------
         ValueError
-            If top_k <= 0, top_p not in (0,1], or vector dimension mismatch.
+            If top_k <= 0, top_p not in (0,1], probes < 0, or vector dimension mismatch.
         RuntimeError
             If top_p provided but no vector_fetch_fn configured.
 
@@ -601,12 +626,15 @@ class LSHRS:
         Band collision count correlates with similarity but isn't a direct measure.
         Use top-p mode with cosine reranking for accurate similarity scores.
         """
+        if probes < 0:
+            raise ValueError("probes must be non-negative")
+
         # Prepare and validate query vector
         query_vector = self._prepare_vector(vector)
 
         # Get candidates and their band collision counts
         # More collisions = more likely to be similar
-        candidate_counts = self._candidate_counts(query_vector)
+        candidate_counts = self._candidate_counts(query_vector, probes=probes)
         if not candidate_counts:
             return []
 
@@ -646,7 +674,8 @@ class LSHRS:
         similarities = top_k_cosine(query_vector, arr, k=len(candidate_indices))
         ordered_scores = [(candidate_indices[pos], score) for pos, score in similarities]
 
-        # Apply top-p cutoff (return top p% of candidates)
+        # Apply top-p cutoff: return the top ceil(N*p) candidates by cosine
+        # similarity, where N is the number of LSH candidates.
         limit = max(1, math.ceil(len(ordered_scores) * top_p))
 
         # Also apply top_k limit if specified
@@ -692,21 +721,23 @@ class LSHRS:
         results = self.query(vector, top_k=topk, top_p=None)
         return list(results)  # type: ignore[return-value]
 
-    def get_above_p(self, vector: np.ndarray, p: float = 0.95) -> CandidateScores:
+    def get_above_p(self, vector: np.ndarray, p: float = 0.1) -> CandidateScores:
         """
         Convenience wrapper for top-p retrieval with cosine similarity reranking.
 
-        Returns candidates covering the top p proportion of similarity mass.
-        More accurate than get_top_k but requires fetching candidate vectors.
+        Returns the top ceil(N*p) candidates by cosine similarity, where N is the
+        number of LSH candidates. More accurate than get_top_k but requires
+        fetching candidate vectors.
 
         Parameters
         ----------
         vector : np.ndarray
             Query vector of dimension `dim`.
 
-        p : float, default=0.95
-            Proportion threshold in (0, 1]. Returns enough candidates to
-            cover this proportion of total similarity. Lower = more selective.
+        p : float, default=0.1
+            Count-fraction threshold in (0, 1]. Returns the top ceil(N*p)
+            candidates by cosine similarity, where N is the number of LSH
+            candidates. Lower = more selective. Default returns the top 10%.
 
         Returns
         -------
@@ -716,10 +747,13 @@ class LSHRS:
         Examples
         --------
         >>> query = np.random.randn(128)
-        >>> # Get top 5% most similar
+        >>> # Get the top 5% of candidates by cosine similarity
         >>> results = lsh.get_above_p(query, p=0.05)
         >>> results
         [(42, 0.95), (17, 0.93), (203, 0.91), ...]
+        >>>
+        >>> # Default returns the top 10% of candidates
+        >>> top_10pct = lsh.get_above_p(query)
         >>>
         >>> # Extract just indices
         >>> indices = [idx for idx, score in results]
@@ -745,9 +779,10 @@ class LSHRS:
         """
         Remove one or more vector indices from every Redis bucket.
 
-        This performs a hard deletion - the indices are removed from all
-        LSH buckets across all bands. Use sparingly as it's expensive (must
-        scan all bucket keys).
+        This performs a hard deletion - the indices are removed from the LSH
+        buckets they belong to. The storage layer uses a per-member reverse
+        index, so deletion is O(buckets-per-member) and does NOT scan all
+        bucket keys.
 
         Common use cases:
             - GDPR compliance (right to be forgotten)
@@ -774,8 +809,8 @@ class LSHRS:
 
         Notes
         -----
-        This operation is slow for large indices as it must scan all bucket keys.
-        Consider rebuilding the index periodically instead of many deletions.
+        Deletion cost is O(buckets-per-member) thanks to the reverse index;
+        the write-amplification tradeoff is paid during ingestion instead.
         """
         # Normalize to list for consistent handling
         to_remove = [indices] if isinstance(indices, int) else [int(idx) for idx in indices]
@@ -803,10 +838,13 @@ class LSHRS:
         Useful for logging, debugging, and ensuring consistent configuration
         across deployments.
 
+        This method only reads state; it has no side effects (in particular it
+        does NOT flush the pending buffer).
+
         Returns
         -------
         Dict[str, Any]
-            Configuration dictionary including:
+            Configuration and observability dictionary including:
             - dimension: Vector dimensionality
             - num_perm: Total hash bits
             - num_bands: Number of bands
@@ -814,6 +852,9 @@ class LSHRS:
             - buffer_size: Operation buffer size
             - similarity_threshold: Target similarity
             - redis_prefix: Key namespace
+            - num_vectors: Number of indexed vectors (storage member_count)
+            - num_buckets: Number of bucket keys (storage bucket_count)
+            - buffered_operations: Number of pending (unflushed) operations
 
         Examples
         --------
@@ -826,9 +867,16 @@ class LSHRS:
             'rows_per_band': 6,
             'buffer_size': 8912,
             'similarity_threshold': 0.5,
-            'redis_prefix': 'lsh'
+            'redis_prefix': 'lsh',
+            'num_vectors': 0,
+            'num_buckets': 0,
+            'buffered_operations': 0
         }
         """
+        # Snapshot the pending buffer length without mutating it.
+        with self._buffer_lock:
+            buffered_operations = len(self._buffer)
+
         return {
             "dimension": self._dim,
             "num_perm": self._config["num_perm"],
@@ -837,6 +885,10 @@ class LSHRS:
             "buffer_size": self._buffer_size,
             "similarity_threshold": self._config["similarity_threshold"],
             "redis_prefix": self._redis_config["prefix"],
+            "redis_cluster": self._redis_config.get("cluster", False),
+            "num_vectors": self._storage.member_count(),
+            "num_buckets": self._storage.bucket_count(),
+            "buffered_operations": buffered_operations,
         }
 
     # ---------------------------------------------------------------------
@@ -882,8 +934,10 @@ class LSHRS:
         if "password" in sanitized_redis_config:
             sanitized_redis_config["password"] = "<REDACTED>"
 
+        from lshrs import __version__
+
         metadata = {
-            "version": "0.1.1a4",
+            "version": __version__,
             "config": self._config,
             "redis_config": sanitized_redis_config,
         }
@@ -971,6 +1025,8 @@ class LSHRS:
             redis_db=stored_redis["db"],
             redis_password=stored_redis["password"],
             redis_prefix=stored_redis["prefix"],
+            redis_cluster=stored_redis.get("cluster", False),
+            redis_startup_nodes=stored_redis.get("startup_nodes"),
             decode_responses=stored_redis["decode_responses"],
             seed=config["seed"],
         )
@@ -1033,6 +1089,8 @@ class LSHRS:
             redis_db=state["redis_config"]["db"],
             redis_password=state["redis_config"]["password"],
             redis_prefix=state["redis_config"]["prefix"],
+            redis_cluster=state["redis_config"].get("cluster", False),
+            redis_startup_nodes=state["redis_config"].get("startup_nodes"),
             decode_responses=state["redis_config"]["decode_responses"],
             seed=state["config"]["seed"],
         )
@@ -1085,28 +1143,53 @@ class LSHRS:
 
         return arr
 
-    def _candidate_counts(self, query_vector: np.ndarray) -> dict[int, int]:
+    def _candidate_counts(self, query_vector: np.ndarray, probes: int = 0) -> dict[int, int]:
         """
         Compute per-candidate counts of LSH band collisions for a prepared query vector.
 
         Counts how many bands produced the same bucket as the query; larger counts indicate more band matches and therefore stronger candidate signals.
 
+        When ``probes > 0``, multi-probe LSH (Lv et al., VLDB 2007) is used: for each band,
+        in addition to the exact bucket the query hashes into, up to ``probes`` neighboring
+        buckets are also examined. The probe sequence is query-directed: candidate buckets
+        are generated by flipping the hash bits whose projection margin is smallest in
+        absolute value (i.e. closest to the separating hyperplane), ranked ascending. Each
+        member found in a probed bucket contributes to the same per-band collision count, so
+        a candidate is still counted at most once per band.
+
         Parameters:
             query_vector (np.ndarray): Prepared query vector of shape (dim,).
+            probes (int): Number of extra buckets to probe per band. ``0`` reproduces plain
+                LSH exactly (only the exact bucket is examined).
 
         Returns:
             Dict[int, int]: Mapping from candidate index to number of band collisions.
         """
-        # Hash query vector to get signatures for all bands
-        signatures = self._hasher.hash_vector(query_vector)
+        # Multi-probe needs the raw margins; plain mode keeps the original fast path.
+        if probes <= 0:
+            signatures = self._hasher.hash_vector(query_vector)
+            margins: Optional[list[np.ndarray]] = None
+        else:
+            signatures, margins = self._hasher.hash_vector_with_margins(query_vector)
 
-        # Count collisions across all bands
         counts: dict[int, int] = {}
         for band_id, hash_val in enumerate(signatures):
-            # Get all indices in this band's bucket
-            for candidate in self._storage.get_bucket(band_id, hash_val):
-                # Increment collision count
-                counts[candidate] = counts.get(candidate, 0) + 1
+            # Buckets to examine for this band: the exact bucket plus, if requested,
+            # the most promising perturbed buckets (smallest |margin| bit flips).
+            buckets = [hash_val]
+            if margins is not None:
+                # Rank single-bit flips by |margin| ascending and take the top `probes`.
+                band_margins = margins[band_id]
+                order = np.argsort(np.abs(band_margins))[:probes]
+                buckets.extend(self._hasher.flip_bit(hash_val, int(bit)) for bit in order)
+
+            # Count each candidate at most once per band, even across probed buckets.
+            seen: set[int] = set()
+            for bucket_hash in buckets:
+                for candidate in self._storage.get_bucket(band_id, bucket_hash):
+                    if candidate not in seen:
+                        seen.add(candidate)
+                        counts[candidate] = counts.get(candidate, 0) + 1
 
         return counts
 

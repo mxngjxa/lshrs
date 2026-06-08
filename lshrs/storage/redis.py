@@ -27,14 +27,19 @@ Typical usage:
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from typing import Any, Union
 
 import redis
+import redis.cluster
 
 # Type alias for clarity in batch operations
 # Each operation is: (band_id, hash_signature, vector_index)
 BucketOperation = tuple[int, bytes, int]
+
+# A startup node may be given as a (host, port) tuple or a {"host", "port"} mapping.
+StartupNode = Union[tuple[str, int], Mapping[str, Any]]
 
 
 class RedisStorage:
@@ -93,6 +98,8 @@ class RedisStorage:
         decode_responses: bool = False,
         prefix: str = "lsh",
         max_connections: int = 50,
+        cluster: bool = False,
+        startup_nodes: Sequence[StartupNode] | None = None,
     ) -> None:
         """
         Initialize Redis connection for LSH bucket storage.
@@ -116,6 +123,17 @@ class RedisStorage:
                    Must not contain colons (:) to avoid key parsing issues.
             max_connections: Maximum number of connections in the pool.
                            Default is 50.
+            cluster: If True, connect to a Redis Cluster using
+                    redis.cluster.RedisCluster instead of a single-node
+                    redis.Redis client + ConnectionPool. When enabled, keys
+                    are generated with band-aware hash tags so that all buckets
+                    of a band co-locate on a single slot/node (see bucket_key).
+                    Default (False) preserves exact single-node behavior and
+                    key formats.
+            startup_nodes: Optional sequence of cluster seed nodes, each a
+                          (host, port) tuple or a mapping with "host"/"port"
+                          keys. Only used when cluster=True. If omitted, the
+                          single host/port pair is used as the seed node.
 
         Example:
             >>> # Local development
@@ -140,31 +158,95 @@ class RedisStorage:
         # Store prefix for key generation
         self.prefix = prefix
 
-        # Initialize redis-py connection pool
-        # Using a pool is more efficient for multi-threaded applications
-        self._pool = redis.ConnectionPool(
-            host=host,
-            port=port,
-            db=db,
-            password=password,
-            decode_responses=decode_responses,
-            max_connections=max_connections,
-            socket_connect_timeout=5,
-            socket_timeout=5,
-            retry_on_timeout=True,
-        )
+        # Track whether band-aware hash-tag key scheme is active.
+        # Cluster mode wraps the band id (and member index id) in {...} so that
+        # Redis Cluster routes co-located keys to the same slot. Single-node
+        # mode keeps the legacy flat key format to avoid breaking existing
+        # indices.
+        self.cluster = cluster
 
-        # Initialize client using the pool
-        self._client = redis.Redis(connection_pool=self._pool)
+        if cluster:
+            # Build the list of seed nodes for the cluster client.
+            nodes = self._build_cluster_nodes(startup_nodes, host, port)
+
+            # No ConnectionPool attribute in cluster mode; RedisCluster manages
+            # its own per-node pools internally.
+            self._pool = None
+
+            # RedisCluster discovers the full topology from the seed node(s).
+            self._client = redis.cluster.RedisCluster(
+                startup_nodes=nodes,
+                password=password,
+                decode_responses=decode_responses,
+                max_connections=max_connections,
+                socket_connect_timeout=5,
+                socket_timeout=5,
+            )
+        else:
+            # Initialize redis-py connection pool
+            # Using a pool is more efficient for multi-threaded applications
+            self._pool = redis.ConnectionPool(
+                host=host,
+                port=port,
+                db=db,
+                password=password,
+                decode_responses=decode_responses,
+                max_connections=max_connections,
+                socket_connect_timeout=5,
+                socket_timeout=5,
+                retry_on_timeout=True,
+            )
+
+            # Initialize client using the pool
+            self._client = redis.Redis(connection_pool=self._pool)
+
+    @staticmethod
+    def _build_cluster_nodes(
+        startup_nodes: Sequence[StartupNode] | None,
+        host: str,
+        port: int,
+    ) -> list[redis.cluster.ClusterNode]:
+        """
+        Normalize startup-node specs into a list of redis.cluster.ClusterNode.
+
+        Accepts (host, port) tuples or mappings with "host"/"port" keys. When no
+        startup nodes are supplied, falls back to the single host/port seed.
+
+        Args:
+            startup_nodes: Optional sequence of seed-node specs, or None.
+            host: Fallback seed host used when startup_nodes is empty/None.
+            port: Fallback seed port used when startup_nodes is empty/None.
+
+        Returns:
+            List of ClusterNode instances suitable for RedisCluster(startup_nodes=...).
+        """
+        if not startup_nodes:
+            return [redis.cluster.ClusterNode(host, port)]
+
+        nodes: list[redis.cluster.ClusterNode] = []
+        for node in startup_nodes:
+            if isinstance(node, Mapping):
+                nodes.append(redis.cluster.ClusterNode(node["host"], int(node["port"])))
+            else:
+                node_host, node_port = node
+                nodes.append(redis.cluster.ClusterNode(node_host, int(node_port)))
+        return nodes
 
     def close(self) -> None:
         """
         Close the Redis connection pool and release network resources.
 
         If a connection pool was created, disconnects all pooled connections; calling this when no pool exists is a no-op.
+
+        In cluster mode there is no single ConnectionPool: the RedisCluster
+        client is closed directly, which tears down its per-node pools.
         """
-        if hasattr(self, "_pool"):
+        if getattr(self, "_pool", None) is not None:
             self._pool.disconnect()
+        elif getattr(self, "cluster", False):
+            client = getattr(self, "_client", None)
+            if client is not None:
+                client.close()
 
     def __del__(self) -> None:
         """
@@ -175,12 +257,13 @@ class RedisStorage:
         self.close()
 
     @property
-    def client(self) -> redis.Redis:  # pragma: no cover - simple accessor
+    def client(self) -> redis.Redis | redis.cluster.RedisCluster:  # pragma: no cover - simple accessor
         """
         Expose the underlying redis-py client for advanced or unwrapped operations.
 
         Returns:
-            redis.Redis: The internal Redis client instance used by this storage backend.
+            The internal client instance: redis.Redis in single-node mode or
+            redis.cluster.RedisCluster in cluster mode.
         """
         return self._client
 
@@ -219,10 +302,53 @@ class RedisStorage:
             - Colon separators enable Redis keyspace notifications filtering
             - Hex encoding makes keys grep-able in Redis logs
             - Band ID comes before hash for efficient pattern matching
+
+        Cluster mode (band-aware sharding):
+            When cluster=True, the band id is wrapped in a Redis hash tag:
+                {prefix}:{<band_id>}:bucket:{hash_hex}
+            e.g. "search:{5}:bucket:abcdef". Redis Cluster computes the slot
+            from the substring inside the first {...}, so every bucket of a
+            given band maps to the same slot/node. This co-locates per-band
+            pipelines and SCANs on one node while spreading distinct bands
+            across the cluster. Single-node mode keeps the legacy flat format.
         """
         # Convert binary hash to hex string (e.g., b'\xff' -> 'ff')
         # hex() method is faster than binascii.hexlify
+        if self.cluster:
+            # Wrap band id in {} so it becomes the cluster hash tag.
+            return f"{self.prefix}:{{{band_id}}}:bucket:{hash_val.hex()}"
         return f"{self.prefix}:{band_id}:bucket:{hash_val.hex()}"
+
+    def member_key(self, index: int) -> str:
+        """
+        Compute the Redis key for a member's reverse-index set.
+
+        The reverse index maps a vector index to the set of bucket keys it
+        belongs to. This enables O(buckets-per-member) deletion instead of a
+        full SCAN over every bucket key.
+
+        Key pattern:
+            {prefix}:member:{index}
+
+        In cluster mode the index is wrapped in a hash tag so the member's
+        reverse-index set always lands on a deterministic, reachable slot:
+            {prefix}:member:{<index>}   e.g. "search:member:{42}".
+
+        Args:
+            index: The vector index whose bucket membership is tracked.
+
+        Returns:
+            Redis key string for the member's reverse-index SET.
+
+        Example:
+            >>> RedisStorage(prefix="search").member_key(42)
+            'search:member:42'
+            >>> RedisStorage(prefix="search", cluster=True).member_key(42)
+            'search:member:{42}'
+        """
+        if self.cluster:
+            return f"{self.prefix}:member:{{{index}}}"
+        return f"{self.prefix}:member:{index}"
 
     def add_to_bucket(self, band_id: int, hash_val: bytes, index: int) -> None:
         """
@@ -270,6 +396,12 @@ class RedisStorage:
             - Real-time indexing (add vectors as they arrive)
             - Incremental updates to existing index
             - Small-scale indexing (<1000 vectors)
+
+        Write-amplification tradeoff:
+            In addition to the bucket SADD, this method also records the bucket
+            key in a per-member reverse-index set ({prefix}:member:{index}). This
+            costs one extra SADD per band, but enables O(buckets-per-member)
+            deletion (remove_indices) instead of scanning ALL bucket keys.
         """
         # Generate Redis key for this band/hash combination
         key = self.bucket_key(band_id, hash_val)
@@ -278,6 +410,11 @@ class RedisStorage:
         # Creates the set if it doesn't exist yet
         # No-op if index already in set (automatic deduplication)
         self._client.sadd(key, index)
+
+        # Maintain the reverse index: record which bucket key this member
+        # belongs to so deletion can avoid a full keyspace SCAN.
+        # Extra SADD = write amplification, but makes remove_indices fast.
+        self._client.sadd(self.member_key(index), key)
 
     def get_bucket(self, band_id: int, hash_val: bytes) -> set[int]:
         """
@@ -401,6 +538,12 @@ class RedisStorage:
             - Connection errors: Automatically retried by pipeline context
             - Redis errors: Raised after attempting all commands
             - Partial failures: Some commands may succeed before error
+
+        Write-amplification tradeoff:
+            For every bucket SADD this also records the bucket key in the
+            per-member reverse-index set ({prefix}:member:{index}), within the
+            same pipeline. This doubles the number of SADD commands but enables
+            O(buckets-per-member) deletion instead of a full keyspace SCAN.
         """
         # Early return for empty batch (avoid unnecessary pipeline creation)
         if not operations:
@@ -414,19 +557,20 @@ class RedisStorage:
             for band_id, hash_val, index in operations:
                 key = self.bucket_key(band_id, hash_val)
                 pipe.sadd(key, index)
+                # Reverse index: record the bucket key under the member set so
+                # remove_indices can delete without scanning all buckets.
+                pipe.sadd(self.member_key(index), key)
             # execute() is called automatically when exiting context manager
 
     def remove_indices(self, indices: Iterable[int]) -> None:
         """
-        Remove indices from every bucket key across all bands.
+        Remove indices from the buckets they belong to using the reverse index.
 
-        This operation is used when deleting vectors from your LSH index. It
-        scans through all buckets and removes the specified indices, ensuring
-        they won't appear in future search results.
-
-        Warning: This is a SLOW operation! It must:
-            1. Scan all keys matching the prefix pattern
-            2. Remove indices from each key found
+        This operation is used when deleting vectors from your LSH index. Rather
+        than scanning ALL bucket keys, it consults each member's reverse-index
+        set ({prefix}:member:{index}) to learn exactly which buckets the member
+        belongs to, removes it from only those buckets, then deletes the member
+        set itself.
 
         Typical use cases:
             - Hard deletion of vectors (GDPR compliance, content moderation)
@@ -434,18 +578,19 @@ class RedisStorage:
             - Index maintenance and cleanup
 
         Performance characteristics:
-            - Time: O(num_buckets × num_indices)
-            - For 10,000 buckets × 100 indices: ~5-30 seconds
-            - Blocks Redis during execution (use carefully in production)
+            - Time: O(num_indices × buckets-per-member)
+            - No full keyspace SCAN required (unlike the legacy implementation)
+            - Cost is paid up front as write amplification during ingestion
 
         Args:
-            indices: Vector indices to remove from all buckets.
+            indices: Vector indices to remove from their buckets.
                     Can be list, set, tuple, or any iterable.
                     Empty iterable is a no-op.
                     Duplicates are automatically handled.
+                    An empty/missing member set is a no-op for that index.
 
         Returns:
-            None. All matching indices are removed from all buckets.
+            None. Each index is removed from the buckets it belonged to.
 
         Example:
             >>> storage = RedisStorage()
@@ -465,49 +610,48 @@ class RedisStorage:
             set()
 
         Implementation details:
-            - Uses SCAN iterator (safe, doesn't block Redis for long)
-            - SCAN returns keys in undefined order
+            - SMEMBERS reads the member set to discover the exact bucket keys
             - SREM is idempotent (no error if index not in set)
-            - Pipeline batches all SREM commands for efficiency
-
-        Alternatives for better performance:
-            - Mark vectors as deleted (logical deletion) rather than removing
-            - Rebuild entire index periodically instead of incremental removal
-            - Use Redis key expiration (TTL) if deletion can be delayed
-
-        Production considerations:
-            - Run during off-peak hours (impacts Redis performance)
-            - Consider rate limiting if removing many indices
-            - Monitor Redis CPU usage during operation
-            - For large deletions, consider rebuilding index instead
+            - DEL removes the now-stale member set
+            - Pipeline batches the SREM/DEL commands for efficiency
+            - Bucket keys may come back as bytes (decode_responses=False) and
+              are decoded to str for use as Redis keys
         """
-        # Normalize to list for consistent iteration
-        # Allows reuse without exhausting iterator
-        normalized = list(indices)
+        # Normalize to set for consistent iteration / dedup
+        normalized = {int(idx) for idx in indices}
 
         # Early return for empty input
         if not normalized:
             return
 
-        # Pattern matches all bucket keys under this prefix
-        # Example: "lsh:*:bucket:*" matches "lsh:0:bucket:abc", "lsh:5:bucket:def", etc.
-        pattern = f"{self.prefix}:*:bucket:*"
-
-        # Use pipeline for batch removal (much faster than individual calls)
         with self.pipeline() as pipe:
-            # SCAN iterates through keyspace without blocking
-            # Returns keys matching pattern in chunks
-            for key in self._client.scan_iter(match=pattern):
-                # Queue SREM command for each key
-                # Removes all specified indices from the set
-                # No-op if indices not in set (SREM is idempotent)
-                pipe.srem(key, *normalized)
-            # All SREM commands execute when pipeline exits
+            for idx in normalized:
+                member = self.member_key(idx)
+
+                # Discover the exact bucket keys this member belongs to.
+                # Empty/missing member set => no-op for this index.
+                bucket_keys = self._client.smembers(member)  # type: ignore[union-attr]
+                for bucket_key in bucket_keys:  # type: ignore[union-attr]
+                    # Bucket keys may be bytes (decode_responses=False) - decode
+                    # to str so they can be used as Redis keys.
+                    if isinstance(bucket_key, bytes):
+                        bucket_key = bucket_key.decode("utf-8")
+                    # Remove this index from the bucket (idempotent).
+                    pipe.srem(bucket_key, idx)
+
+                # Drop the now-stale reverse-index set for this member.
+                pipe.delete(member)
+            # All commands execute when pipeline exits
 
     @contextmanager
-    def pipeline(self) -> Iterator[redis.client.Pipeline]:  # type: ignore[name-defined]
+    def pipeline(self) -> Iterator[Any]:
         """
         Context manager for Redis pipelines with automatic execution.
+
+        In cluster mode this yields a redis.cluster.ClusterPipeline, which
+        transparently routes each buffered command to the correct node/slot
+        (commands spanning multiple slots are grouped per node rather than
+        rejected). In single-node mode it yields a redis.client.Pipeline.
 
         Provides a safe, convenient way to use Redis pipelining. The pipeline
         automatically executes all buffered commands on exit and resets itself
@@ -628,6 +772,8 @@ class RedisStorage:
             - Collects all keys into list before deletion
             - Single DELETE command for all keys (atomic)
             - No-op if no keys match pattern
+            - The "{prefix}:*" pattern also matches the reverse-index
+              "{prefix}:member:*" keys, so they are cleared too
 
         Performance:
             - SCAN time: O(num_keys) but non-blocking
@@ -656,10 +802,49 @@ class RedisStorage:
         # Collect all matching keys
         # scan_iter returns generator, convert to list for DELETE command
         # SCAN is safe (doesn't block Redis) but may return duplicates
+        # In cluster mode, RedisCluster.scan_iter fans out across all primaries.
         keys = list(self._client.scan_iter(match=pattern))
 
-        # Delete all keys at once
-        # DELETE is atomic: all keys removed in single operation
-        # No-op if keys list is empty (no error)
-        if keys:
+        if not keys:
+            return
+
+        if self.cluster:
+            # A single multi-key DELETE would span multiple hash slots and raise
+            # a CROSSSLOT error in Redis Cluster. Route deletes per node via a
+            # cluster pipeline, which groups commands by their target slot/node.
+            with self.pipeline() as pipe:
+                for key in keys:
+                    pipe.delete(key)
+        else:
+            # Delete all keys at once
+            # DELETE is atomic: all keys removed in single operation
             self._client.delete(*keys)
+
+    def bucket_count(self) -> int:
+        """
+        Count the number of LSH bucket keys currently stored.
+
+        Counts keys matching "{prefix}:*:bucket:*" via a non-blocking SCAN.
+        In cluster mode the scan fans out across all primary nodes so the
+        count reflects the whole cluster. Useful for observability/stats.
+
+        Returns:
+            int: Number of bucket keys under this prefix.
+        """
+        pattern = f"{self.prefix}:*:bucket:*"
+        return sum(1 for _ in self._client.scan_iter(match=pattern))
+
+    def member_count(self) -> int:
+        """
+        Count the number of reverse-index member keys currently stored.
+
+        Counts keys matching "{prefix}:member:*" via a non-blocking SCAN. Since
+        each indexed vector has exactly one member set, this equals the number
+        of distinct vectors currently in the index. In cluster mode the scan
+        fans out across all primary nodes.
+
+        Returns:
+            int: Number of member (reverse-index) keys under this prefix.
+        """
+        pattern = f"{self.prefix}:member:*"
+        return sum(1 for _ in self._client.scan_iter(match=pattern))

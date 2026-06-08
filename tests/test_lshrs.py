@@ -164,7 +164,10 @@ def test_top_k_cosine_invalid_k():
 def test_compute_lsh_threshold_matches_closed_form():
     b, r = 64, 8
 
-    assert compute_lsh_threshold(b, r) == pytest.approx((1 / b) ** (1 / r))
+    p_star = (1 - 0.5 ** (1 / b)) ** (1 / r)
+    expected = math.cos(math.pi * (1 - p_star))
+
+    assert compute_lsh_threshold(b, r) == pytest.approx(expected)
 
 
 def test_compute_collision_probability_monotonic():
@@ -185,15 +188,40 @@ def test_compute_false_rates_bounds():
     assert 0.0 <= fn_rate <= 1.0
 
 
-def test_get_optimal_config_prefers_precomputed_entries():
-    b, r = get_optimal_config(4096, 0.9)
+def test_get_optimal_config_matches_cosine_model():
+    b, r = get_optimal_config(128, 0.5)
 
-    assert (b, r) == (64, 64)
+    assert (b, r) == (16, 8)
+    assert b * r == 128
 
     actual_threshold = compute_lsh_threshold(b, r)
+    p_star = (1 - 0.5 ** (1 / b)) ** (1 / r)
+    assert actual_threshold == pytest.approx(math.cos(math.pi * (1 - p_star)))
 
-    assert actual_threshold == pytest.approx((1 / 64) ** (1 / 64))
-    assert abs(actual_threshold - 0.9) < 0.05
+    # The chosen pair's threshold is the closest achievable to the target among
+    # all valid factorizations of num_perm.
+    divisors = [(bb, 128 // bb) for bb in range(1, 129) if 128 % bb == 0]
+    closest = min(divisors, key=lambda br: abs(compute_lsh_threshold(*br) - 0.5))
+    assert abs(actual_threshold - 0.5) == pytest.approx(abs(compute_lsh_threshold(*closest) - 0.5))
+
+
+def test_get_optimal_config_honors_threshold_no_silent_fallback():
+    # The old Jaccard heuristic silently returned (8, 16) for (128, 0.5), whose
+    # cosine threshold is ~0.9. The corrected optimizer must honor the request.
+    b, r = get_optimal_config(128, 0.5)
+
+    assert (b, r) != (8, 16)
+    assert abs(compute_lsh_threshold(b, r) - 0.5) < 0.05
+
+
+def test_get_optimal_config_always_valid_factorization_and_warns():
+    # 127 is prime: the only factorizations are (1, 127) and (127, 1), neither of
+    # which can land near a moderate target threshold, so a warning is expected.
+    with pytest.warns(UserWarning):
+        b, r = get_optimal_config(127, 0.5)
+
+    assert b * r == 127
+    assert b >= 1 and r >= 1
 
 
 def test_zero_vector_rejected_on_ingest():

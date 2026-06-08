@@ -259,6 +259,64 @@ class TestTopPQuery:
         assert isinstance(results, list)
         assert all(isinstance(r, tuple) and len(r) == 2 for r in results)
 
+    def test_top_p_returns_count_fraction(self, mock_storage):
+        """top_p returns the top ceil(N*p) candidates by cosine similarity."""
+        dim = 8
+        n = dim
+        vecs = np.eye(dim, dtype=np.float32)
+
+        def fetch_fn(indices):
+            return np.array([vecs[i] for i in indices], dtype=np.float32)
+
+        lsh = LSHRS(
+            dim=dim,
+            num_bands=1,
+            rows_per_band=1,
+            num_perm=1,
+            storage=mock_storage,
+            vector_fetch_fn=fetch_fn,
+        )
+        for i in range(n):
+            lsh.ingest(i, vecs[i])
+        lsh.flush()
+
+        candidates = lsh.query(vecs[0], top_p=1.0, top_k=None)
+        total = len(candidates)
+        assert total > 0
+
+        # With p=0.5 we expect ceil(total * 0.5) results.
+        half = lsh.query(vecs[0], top_p=0.5, top_k=None)
+        assert len(half) == max(1, int(np.ceil(total * 0.5)))
+
+    def test_get_above_p_default_is_top_10_percent(self, mock_storage):
+        """get_above_p default p must be 0.1 (top 10% of candidates)."""
+        import inspect
+
+        sig = inspect.signature(LSHRS.get_above_p)
+        assert sig.parameters["p"].default == 0.1
+
+        dim = 8
+        vecs = np.eye(dim, dtype=np.float32)
+
+        def fetch_fn(indices):
+            return np.array([vecs[i] for i in indices], dtype=np.float32)
+
+        lsh = LSHRS(
+            dim=dim,
+            num_bands=1,
+            rows_per_band=1,
+            num_perm=1,
+            storage=mock_storage,
+            vector_fetch_fn=fetch_fn,
+        )
+        for i in range(dim):
+            lsh.ingest(i, vecs[i])
+        lsh.flush()
+
+        total = len(lsh.query(vecs[0], top_p=1.0, top_k=None))
+        default_results = lsh.get_above_p(vecs[0])
+        assert len(default_results) == max(1, int(np.ceil(total * 0.1)))
+
     def test_get_top_k_wrapper(self, mock_storage, make_lsh):
         lsh = make_lsh(dim=4, num_bands=2, rows_per_band=2, num_perm=4)
         vec = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
@@ -327,6 +385,48 @@ class TestMaintenanceOps:
         assert "buffer_size" in info
         assert "similarity_threshold" in info
         assert "redis_prefix" in info
+        # New observability keys must also be present.
+        assert "num_vectors" in info
+        assert "num_buckets" in info
+        assert "buffered_operations" in info
+
+    def test_delete_uses_reverse_index(self, mock_storage, make_lsh):
+        """A deleted index must vanish from every bucket and its member key gone."""
+        lsh = make_lsh(dim=4, num_bands=2, rows_per_band=2, num_perm=4)
+        vec_a = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+        vec_b = np.array([0.0, 1.0, 0.0, 0.0], dtype=np.float32)
+        lsh.ingest(0, vec_a)
+        lsh.ingest(1, vec_b)
+        lsh.flush()
+
+        assert 0 in mock_storage.members
+        # 0 lives in some buckets before deletion.
+        assert any(0 in members for members in mock_storage.data.values())
+
+        lsh.delete(0)
+
+        # Member key removed and no bucket still references 0.
+        assert 0 not in mock_storage.members
+        assert all(0 not in members for members in mock_storage.data.values())
+        # Index 1 is untouched.
+        assert 1 in mock_storage.members
+
+    def test_stats_reports_vectors_and_buckets(self, mock_storage, make_lsh):
+        """stats() num_vectors / num_buckets reflect what was ingested."""
+        lsh = make_lsh(dim=4, num_bands=2, rows_per_band=2, num_perm=4)
+        before = lsh.stats()
+        assert before["num_vectors"] == 0
+        assert before["num_buckets"] == 0
+
+        vecs = np.eye(4, dtype=np.float32)
+        lsh.index([0, 1, 2, 3], vecs)
+
+        info = lsh.stats()
+        # One member set per ingested vector.
+        assert info["num_vectors"] == 4
+        # At least one bucket exists; cannot exceed vectors * bands.
+        assert info["num_buckets"] == mock_storage.bucket_count()
+        assert info["num_buckets"] > 0
 
 
 # ---------------------------------------------------------------------------
