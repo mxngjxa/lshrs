@@ -169,6 +169,8 @@ class LSHRS:
         redis_password: Optional[str] = None,
         redis_prefix: str = "lsh",
         redis_max_connections: int = 50,
+        redis_cluster: bool = False,
+        redis_startup_nodes: Optional[Sequence[Any]] = None,
         decode_responses: bool = False,
         seed: int = 42,
     ) -> None:
@@ -238,6 +240,8 @@ class LSHRS:
             decode_responses=decode_responses,
             prefix=redis_prefix,
             max_connections=redis_max_connections,
+            cluster=redis_cluster,
+            startup_nodes=redis_startup_nodes,
         )
 
         # Initialize operation buffer for batch processing
@@ -264,6 +268,8 @@ class LSHRS:
             "prefix": redis_prefix,
             "decode_responses": decode_responses,
             "max_connections": redis_max_connections,
+            "cluster": redis_cluster,
+            "startup_nodes": redis_startup_nodes,
         }
 
     def close(self) -> None:
@@ -879,6 +885,7 @@ class LSHRS:
             "buffer_size": self._buffer_size,
             "similarity_threshold": self._config["similarity_threshold"],
             "redis_prefix": self._redis_config["prefix"],
+            "redis_cluster": self._redis_config.get("cluster", False),
             "num_vectors": self._storage.member_count(),
             "num_buckets": self._storage.bucket_count(),
             "buffered_operations": buffered_operations,
@@ -1016,6 +1023,8 @@ class LSHRS:
             redis_db=stored_redis["db"],
             redis_password=stored_redis["password"],
             redis_prefix=stored_redis["prefix"],
+            redis_cluster=stored_redis.get("cluster", False),
+            redis_startup_nodes=stored_redis.get("startup_nodes"),
             decode_responses=stored_redis["decode_responses"],
             seed=config["seed"],
         )
@@ -1078,6 +1087,8 @@ class LSHRS:
             redis_db=state["redis_config"]["db"],
             redis_password=state["redis_config"]["password"],
             redis_prefix=state["redis_config"]["prefix"],
+            redis_cluster=state["redis_config"].get("cluster", False),
+            redis_startup_nodes=state["redis_config"].get("startup_nodes"),
             decode_responses=state["redis_config"]["decode_responses"],
             seed=state["config"]["seed"],
         )
