@@ -16,83 +16,53 @@ Redis-backed locality-sensitive hashing toolkit that stores bucket membership in
 
 ## Table of Contents
 
-- [Overview](#overview)
-- [Architecture Snapshot](#architecture-snapshot)
-- [Key Features](#key-features)
+- [Positioning](#positioning)
+- [How It Works](#how-it-works)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
-- [Ingestion Pipelines](#ingestion-pipelines)
-- [Querying Modes](#querying-modes)
+- [Ingestion](#ingestion)
+- [Querying](#querying)
 - [Persistence & Lifecycle](#persistence--lifecycle)
-- [Performance & Scaling Guidelines](#performance--scaling-guidelines)
-- [Troubleshooting](#troubleshooting)
-- [API Surface Summary](#api-surface-summary)
+- [API Surface](#api-surface)
 - [Development & Testing](#development--testing)
 - [License](#license)
 
-## Overview
+## Positioning
 
-[`LSHRS`](lshrs/core/main.py:53) orchestrates the full locality-sensitive hashing (LSH) workflow:
+LSHRS adds cosine approximate-nearest-neighbor (ANN) search on top of the datastore you already run. Redis holds *only* a compact `bucket -> set-of-indices` index — roughly 100x smaller than the vectors it indexes. The vectors themselves stay external in your system of record (PostgreSQL/pgvector, Parquet, an object store, anything) and are fetched on demand, only when you opt into cosine reranking via `vector_fetch_fn`.
 
-1. Hash incoming vectors into stable banded signatures via random projections.
-2. Store only bucket membership in Redis for low-latency candidate enumeration.
-3. Optionally rerank candidates using cosine similarity with vectors fetched from your system of record.
+See [docs/positioning.md](docs/positioning.md) for the full comparison (LSHRS vs datasketch vs RediSearch HNSW vs pgvector vs FAISS) and when *not* to use LSHRS.
 
-The out-of-the-box configuration chooses bands/rows automatically, pipelines Redis operations, and exposes hooks for streaming data ingestion, persistence, and operational maintenance.
+## How It Works
 
-## Architecture Snapshot
+[`LSHRS`](lshrs/core/main.py:53) runs the full LSH workflow: hash vectors into banded random-projection signatures, store only bucket membership in Redis for low-latency candidate enumeration, then optionally rerank candidates by cosine similarity using vectors fetched from your system of record. It auto-selects bands/rows, pipelines Redis operations, and exposes hooks for streaming ingestion, persistence, and maintenance.
 
-| Concern | Component | Description |
-| --- | --- | --- |
-| Hashing | [`LSHHasher`](lshrs/hash/lsh.py:20) | Generates banded random-projection signatures. |
-| Storage | [`RedisStorage`](lshrs/storage/redis.py:40) | Persists bucket membership using Redis sets and pipelines for batch writes. |
-| Ingestion | [`LSHRS.create_signatures()`](lshrs/core/main.py:267) | Streams vectors from PostgreSQL or Parquet via pluggable loaders. |
-| Reranking | [`top_k_cosine()`](lshrs/utils/similarity.py:94) | Computes cosine similarity for candidate reranking. |
-| Configuration | [`get_optimal_config()`](lshrs/utils/br.py:326) | Picks band/row counts that match a target similarity threshold. |
-
-## Key Features
-
-- **Redis-native buckets**: Uses Redis sets for O(1) membership updates and pipelined batch ingestion.
-- **Progressive indexing**: Stream vectors from PostgreSQL ([`iter_postgres_vectors()`](lshrs/io/postgres.py:16)) or Parquet ([`iter_parquet_vectors()`](lshrs/io/parquet.py:46)) without exhausting memory.
-- **Dual retrieval modes**: Choose fast top-k collision lookups or cosine-reranked top-p filtering through [`LSHRS.query()`](lshrs/core/main.py:486).
-- **Persistable hashing state**: Save and reload projection matrices with [`LSHRS.save_to_disk()`](lshrs/core/main.py:830) and [`LSHRS.load_from_disk()`](lshrs/core/main.py:881).
-- **Operational safety**: Snapshot configuration with [`LSHRS.stats()`](lshrs/core/main.py:782), clear indices via [`LSHRS.clear()`](lshrs/core/main.py:755), and surgically delete members using [`LSHRS.delete()`](lshrs/core/main.py:710).
+| Concern | Component |
+| --- | --- |
+| Hashing | [`LSHHasher`](lshrs/hash/lsh.py:20) — banded random-projection signatures |
+| Storage | [`RedisStorage`](lshrs/storage/redis.py:40) — bucket membership via Redis sets + pipelines |
+| Ingestion | [`LSHRS.create_signatures()`](lshrs/core/main.py:267) — streams from PostgreSQL or Parquet |
+| Reranking | [`top_k_cosine()`](lshrs/utils/similarity.py:94) — cosine similarity for candidates |
+| Configuration | [`get_optimal_config()`](lshrs/utils/br.py:326) — bands/rows for a target threshold |
 
 ## Installation
 
-### PyPI
-
 ```bash
-pip install lshrs
+pip install lshrs              # core
+pip install 'lshrs[postgres]'  # + PostgreSQL streaming (psycopg)
+pip install 'lshrs[parquet]'   # + Parquet ingestion (pyarrow)
 ```
 
-Or, if installing for a postgres database:
-
-```bash
-pip install 'lshrs[postgres]'
-```
-
-Or with Parquet ingestion support:
-
-```bash
-pip install 'lshrs[parquet]'
-```
-
-### From source checkout
+From source:
 
 ```bash
 git clone https://github.com/mxngjxa/lshrs.git
 cd lshrs
-uv sync -e ".[dev]"
+uv sync --dev
 ```
 
 > [!NOTE]
-> The project requires Python >= 3.10 as defined in [`pyproject.toml`](pyproject.toml).
-
-### Optional extras
-
-- PostgreSQL streaming requires [`psycopg`](https://www.psycopg.org/). Install with `pip install 'lshrs[postgres]'`.
-- Parquet ingestion requires [`pyarrow`](https://arrow.apache.org/). Install with `pip install 'lshrs[parquet]'`.
+> Requires Python >= 3.10 (see [`pyproject.toml`](pyproject.toml)).
 
 ## Quick Start
 
@@ -127,145 +97,70 @@ lsh.ingest(42, np.random.randn(768).astype(np.float32))
 
 # Retrieve candidates
 query = np.random.randn(768).astype(np.float32)
-top10 = lsh.get_top_k(query, topk=10)
-reranked = lsh.get_above_p(query, p=0.2)
+top10 = lsh.get_top_k(query, topk=10)         # fast collision lookup -> List[int]
+reranked = lsh.get_above_p(query, p=0.2)      # cosine-reranked -> List[(index, score)]
 ```
 
-The code above exercises [`LSHRS.create_signatures()`](lshrs/core/main.py:267), [`LSHRS.ingest()`](lshrs/core/main.py:340), [`LSHRS.get_top_k()`](lshrs/core/main.py:626), and [`LSHRS.get_above_p()`](lshrs/core/main.py:661).
+## Ingestion
 
-## Ingestion Pipelines
-
-### Streaming from PostgreSQL
-
-[`iter_postgres_vectors()`](lshrs/io/postgres.py:16) yields `(indices, vectors)` batches using server-side cursors:
-
-```python
-lsh.create_signatures(
-    format="postgres",
-    dsn="postgresql://reader:secret@analytics.db/search",
-    table="embeddings",
-    index_column="item_id",
-    vector_column="embedding",
-    batch_size=5_000,
-    where_clause="updated_at >= NOW() - INTERVAL '1 day'",
-)
-```
-
-> [!TIP]
-> Provide a custom `connection_factory` if you need pooled connections or TLS configuration.
-
-### Streaming from Parquet
-
-[`iter_parquet_vectors()`](lshrs/io/parquet.py:46) supports memory-friendly batch loads from Parquet files:
-
-```python
-for ids, batch in iter_parquet_vectors(
-    "captures/2024-01-embeddings.parquet",
-    index_column="document_id",
-    vector_column="embedding",
-    batch_size=8_192,
-):
-    lsh.index(ids, batch)
-```
+- [`LSHRS.create_signatures()`](lshrs/core/main.py:267) streams batches from PostgreSQL ([`iter_postgres_vectors()`](lshrs/io/postgres.py:16), server-side cursors) or Parquet ([`iter_parquet_vectors()`](lshrs/io/parquet.py:46)). Tune `batch_size`, filter with `where_clause`, or pass a custom `connection_factory` for pooling/TLS.
+- [`LSHRS.index()`](lshrs/core/main.py:399) ingests in-memory batches; [`LSHRS.ingest()`](lshrs/core/main.py:340) handles single realtime updates. Both coalesce writes through [`RedisStorage.batch_add()`](lshrs/storage/redis.py:340).
 
 > [!IMPORTANT]
-> Install `pyarrow` prior to using the Parquet loader; otherwise [`iter_parquet_vectors()`](lshrs/io/parquet.py:46) raises `ImportError`.
+> Install `pyarrow` before using the Parquet loader, or [`iter_parquet_vectors()`](lshrs/io/parquet.py:46) raises `ImportError`.
 
-### Manual or Buffered Ingestion
+## Querying
 
-- [`LSHRS.index()`](lshrs/core/main.py:399) ingests vector batches you already hold in memory.
-- [`LSHRS.ingest()`](lshrs/core/main.py:340) is ideal for realtime single-document updates.
-- Under the hood, [`RedisStorage.batch_add()`](lshrs/storage/redis.py:340) leverages Redis pipelines for throughput.
+[`LSHRS.query()`](lshrs/core/main.py:486) offers two retrieval modes:
 
-## Querying Modes
-
-[`LSHRS.query()`](lshrs/core/main.py:486) provides two complementary retrieval patterns:
-
-| Mode | When to use | Result |
+| Mode | When | Result |
 | --- | --- | --- |
-| **Top-k** (`top_p=None`) | Latency-critical scenarios that only require coarse candidates. | Returns `List[int]` ordered by band collisions. |
-| **Top-p** (`top_p=0.0–1.0`) | Precision-sensitive flows that can rerank using original vectors. | Returns `List[Tuple[int,float]]` of `(index, cosine_similarity)` pairs. |
+| **Top-k** (`top_p=None`) | Latency-critical, coarse candidates | `List[int]` ordered by band collisions |
+| **Top-p** (`top_p=0.0–1.0`) | Precision-sensitive, rerank by cosine | `List[Tuple[int, float]]` of `(index, similarity)` |
+
+Convenience wrappers: [`get_top_k()`](lshrs/core/main.py:626) and [`get_above_p()`](lshrs/core/main.py:661).
 
 > [!CAUTION]
-> Reranking requires configuring `vector_fetch_fn` when instantiating [`LSHRS`](lshrs/core/main.py:53); otherwise top-p queries raise `RuntimeError`.
-
-Supporting helpers:
-
-- [`LSHRS.get_top_k()`](lshrs/core/main.py:626) wraps `query` for pure top-k retrieval.
-- [`LSHRS.get_above_p()`](lshrs/core/main.py:661) wraps `query` with a similarity-mass cutoff.
-- Cosine scoring is provided by [`cosine_similarity()`](lshrs/utils/similarity.py:25) and [`top_k_cosine()`](lshrs/utils/similarity.py:94).
+> Top-p reranking requires `vector_fetch_fn` at construction; otherwise it raises `RuntimeError`.
 
 ## Persistence & Lifecycle
 
-| Operation | Purpose | Reference |
-| --- | --- | --- |
-| Snapshot configuration | Inspect runtime parameters and Redis namespace. | [`LSHRS.stats()`](lshrs/core/main.py:782) |
-| Flush & clear | Remove all Redis buckets for the configured prefix. | [`LSHRS.clear()`](lshrs/core/main.py:755) |
-| Hard delete members | Remove specific indices across all buckets. | [`LSHRS.delete()`](lshrs/core/main.py:710) |
-| Persist projections | Save configuration and projection matrices to disk. | [`LSHRS.save_to_disk()`](lshrs/core/main.py:830) |
-| Restore projections | Rebuild an instance using saved matrices. | [`LSHRS.load_from_disk()`](lshrs/core/main.py:881) |
+| Operation | Reference |
+| --- | --- |
+| Inspect runtime config / Redis namespace | [`LSHRS.stats()`](lshrs/core/main.py:782) |
+| Clear all buckets for the prefix (irreversible) | [`LSHRS.clear()`](lshrs/core/main.py:755) |
+| Hard-delete specific indices | [`LSHRS.delete()`](lshrs/core/main.py:710) |
+| Save / restore projection matrices | [`save_to_disk()`](lshrs/core/main.py:830) / [`load_from_disk()`](lshrs/core/main.py:881) |
+
+Because LSHRS stores only `bucket -> set-of-indices` membership, [`LSHRS.delete()`](lshrs/core/main.py:710) makes per-id removal cheap and exact — an id is dropped from its bands with no rebuild or compaction, which suits GDPR / right-to-be-forgotten workflows. See [docs/positioning.md](docs/positioning.md#deletes--the-right-to-be-forgotten) for details.
 
 > [!WARNING]
-> [`LSHRS.clear()`](lshrs/core/main.py:755) is irreversible—every key with the configured prefix is deleted. Back up state with [`LSHRS.save_to_disk()`](lshrs/core/main.py:830) beforehand if you need to rebuild.
+> [`LSHRS.clear()`](lshrs/core/main.py:755) deletes every key with the configured prefix. Back up with [`save_to_disk()`](lshrs/core/main.py:830) first if you need to rebuild.
 
-## Performance & Scaling Guidelines
+## API Surface
 
-- **Choose sensible hash parameters**: [`get_optimal_config()`](lshrs/utils/br.py:326) finds bands/rows that approximate your target similarity threshold. Inspect S-curve behavior with [`compute_collision_probability()`](lshrs/utils/br.py:119).
-- **Normalize inputs**: Pre-normalize vectors or rely on [`l2_norm()`](lshrs/utils/norm.py:4) for consistent cosine scores.
-- **Batch ingestion**: When indexing large volumes, route operations through [`LSHRS.index()`](lshrs/core/main.py:399) to let [`RedisStorage.batch_add()`](lshrs/storage/redis.py:340) coalesce writes.
-- **Monitor bucket sizes**: Large buckets indicate low selectivity. Adjust `num_perm`, `num_bands`, or the similarity threshold to trade precision vs. recall.
-- **Pipeline warmup**: Flush outstanding operations with [`LSHRS._flush_buffer()`](lshrs/core/main.py:1177) (indirectly called) before measuring latency or persisting state.
-
-## Troubleshooting
-
-| Symptom | Likely Cause | Resolution |
-| --- | --- | --- |
-| `ImportError: psycopg is required` | PostgreSQL loader invoked without optional dependency. | Install `psycopg[binary]` or avoid `format="postgres"`. |
-| `ValueError: Vectors must have shape (n, dim)` | Supplied batch dimension mismatched the configured `dim`. | Ensure all vectors match the `dim` passed to [`LSHRS.__init__()`](lshrs/core/main.py:149). |
-| `ValueError: Cannot normalize zero vector` | Zero-length vectors were passed to cosine scoring utilities. | Filter zero vectors before reranking or normalize upstream. |
-| Empty search results | Buckets never flushed to Redis. | Call [`LSHRS.index()`](lshrs/core/main.py:399) (auto flushes) or explicitly invoke [`LSHRS._flush_buffer()`](lshrs/core/main.py:1177) before querying. |
-| Extremely large buckets | Similarity threshold too low / insufficient hash bits. | Increase `num_perm` or tweak target threshold via [`get_optimal_config()`](lshrs/utils/br.py:326). |
+| Area | Primary Entry Point |
+| --- | --- |
+| Bulk streaming ingestion | [`LSHRS.create_signatures()`](lshrs/core/main.py:267) |
+| Batch / single ingestion | [`LSHRS.index()`](lshrs/core/main.py:399) / [`LSHRS.ingest()`](lshrs/core/main.py:340) |
+| Search with optional reranking | [`LSHRS.query()`](lshrs/core/main.py:486) |
+| Hash persistence | [`save_to_disk()`](lshrs/core/main.py:830) / [`load_from_disk()`](lshrs/core/main.py:881) |
+| Redis maintenance | [`RedisStorage.clear()`](lshrs/storage/redis.py:582) / [`RedisStorage.remove_indices()`](lshrs/storage/redis.py:411) |
+| Probability utilities | [`compute_collision_probability()`](lshrs/utils/br.py:119) / [`compute_false_rates()`](lshrs/utils/br.py:161) |
 
 > [!TIP]
-> Use Redis `SCAN` commands (e.g., `SCAN 0 MATCH lsh:*`) to inspect bucket distribution during tuning.
-
-## API Surface Summary
-
-| Area | Description | Primary Entry Point |
-| --- | --- | --- |
-| Ingestion orchestration | Bulk streaming with source-aware loaders. | [`LSHRS.create_signatures()`](lshrs/core/main.py:267) |
-| Batch ingestion | Hash and store vectors already in memory. | [`LSHRS.index()`](lshrs/core/main.py:399) |
-| Single ingestion | Add or update one vector id on the fly. | [`LSHRS.ingest()`](lshrs/core/main.py:340) |
-| Candidate enumeration | General-purpose search with optional reranking. | [`LSHRS.query()`](lshrs/core/main.py:486) |
-| Hash persistence | Save and restore LSH projection matrices. | [`LSHRS.save_to_disk()`](lshrs/core/main.py:830) / [`LSHRS.load_from_disk()`](lshrs/core/main.py:881) |
-| Redis maintenance | Prefix-aware key deletion and batch removal. | [`RedisStorage.clear()`](lshrs/storage/redis.py:582) / [`RedisStorage.remove_indices()`](lshrs/storage/redis.py:411) |
-| Probability utilities | Analyze band/row trade-offs and false rates. | [`compute_collision_probability()`](lshrs/utils/br.py:119) / [`compute_false_rates()`](lshrs/utils/br.py:161) |
+> [`get_optimal_config()`](lshrs/utils/br.py:326) picks bands/rows for a target similarity threshold. Large buckets signal low selectivity — raise `num_perm` or the threshold to trade recall for precision. Inspect distribution with `SCAN 0 MATCH lsh:*`.
 
 ## Development & Testing
 
-1. Clone and install development dependencies:
-
-   ```bash
-   git clone https://github.com/mxngjxa/lshrs.git
-   cd lshrs
-   uv sync --dev
-   ```
-
-2. Run the test suite:
-
-   ```bash
-   uv run pytest
-   ```
-
-3. Lint and format check:
-
-   ```bash
-   uv run ruff check .
-   uv run ruff format --check .
-   ```
-
-> [!NOTE]
-> Example snippets in this README are intended to be run under Python >= 3.10 with NumPy >= 1.24 and Redis >= 7 as specified in [`pyproject.toml`](pyproject.toml).
+```bash
+git clone https://github.com/mxngjxa/lshrs.git
+cd lshrs
+uv sync --dev
+uv run pytest                  # tests
+uv run ruff check .            # lint
+uv run ruff format --check .   # format check
+```
 
 ## License
 
