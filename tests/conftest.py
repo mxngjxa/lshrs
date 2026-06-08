@@ -18,6 +18,9 @@ class MockStorage(RedisStorage):
     def __init__(self, *, fail_on_flush: bool = False) -> None:
         # Bucket data: (band_id, hash_hex) -> set of indices
         self.data: dict[tuple[int, str], set[int]] = {}
+        # Reverse index: member index -> set of bucket data-keys it belongs to.
+        # Mirrors the real RedisStorage {prefix}:member:{index} sets.
+        self.members: dict[int, set[tuple[int, str]]] = {}
         # Record every batch_add call for assertion
         self.batches: list[list[BucketOperation]] = []
         self.all_operations: list[BucketOperation] = []
@@ -41,6 +44,8 @@ class MockStorage(RedisStorage):
             for band_id, hash_val, index in operations:
                 key = (band_id, hash_val.hex() if isinstance(hash_val, bytes) else str(hash_val))
                 self.data.setdefault(key, set()).add(index)
+                # Maintain reverse index alongside the bucket write.
+                self.members.setdefault(index, set()).add(key)
 
     def get_bucket(self, band_id: int, hash_val: bytes) -> set[int]:
         key = (band_id, hash_val.hex())
@@ -51,18 +56,33 @@ class MockStorage(RedisStorage):
         key = (band_id, hash_val.hex())
         with self._lock:
             self.data.setdefault(key, set()).add(index)
+            self.members.setdefault(index, set()).add(key)
 
     def remove_indices(self, indices: list[int]) -> None:
         with self._lock:
             self.removed_indices.append(list(indices))
-            idx_set = set(indices)
-            for key in self.data:
-                self.data[key] -= idx_set
+            for idx in {int(i) for i in indices}:
+                # Use the reverse index to remove from only the relevant buckets.
+                bucket_keys = self.members.get(idx, set())
+                for key in bucket_keys:
+                    if key in self.data:
+                        self.data[key].discard(idx)
+                # Drop the now-stale member set.
+                self.members.pop(idx, None)
 
     def clear(self) -> None:
         with self._lock:
             self.clear_called = True
             self.data.clear()
+            self.members.clear()
+
+    def bucket_count(self) -> int:
+        with self._lock:
+            return len(self.data)
+
+    def member_count(self) -> int:
+        with self._lock:
+            return len(self.members)
 
     def close(self) -> None:
         self.close_called = True

@@ -224,6 +224,25 @@ class RedisStorage:
         # hex() method is faster than binascii.hexlify
         return f"{self.prefix}:{band_id}:bucket:{hash_val.hex()}"
 
+    def member_key(self, index: int) -> str:
+        """
+        Compute the Redis key for a member's reverse index set.
+
+        The reverse index maps a vector index to the set of bucket keys it
+        belongs to. This enables O(buckets-per-member) deletion instead of a
+        full SCAN over every bucket key.
+
+        Key pattern:
+            {prefix}:member:{index}
+
+        Args:
+            index: The vector index whose bucket membership is tracked.
+
+        Returns:
+            Redis key string for the member's reverse-index SET.
+        """
+        return f"{self.prefix}:member:{index}"
+
     def add_to_bucket(self, band_id: int, hash_val: bytes, index: int) -> None:
         """
         Add a single index to the specified bucket.
@@ -270,6 +289,12 @@ class RedisStorage:
             - Real-time indexing (add vectors as they arrive)
             - Incremental updates to existing index
             - Small-scale indexing (<1000 vectors)
+
+        Write-amplification tradeoff:
+            In addition to the bucket SADD, this method also records the bucket
+            key in a per-member reverse-index set ({prefix}:member:{index}). This
+            costs one extra SADD per band, but enables O(buckets-per-member)
+            deletion (remove_indices) instead of scanning ALL bucket keys.
         """
         # Generate Redis key for this band/hash combination
         key = self.bucket_key(band_id, hash_val)
@@ -278,6 +303,11 @@ class RedisStorage:
         # Creates the set if it doesn't exist yet
         # No-op if index already in set (automatic deduplication)
         self._client.sadd(key, index)
+
+        # Maintain the reverse index: record which bucket key this member
+        # belongs to so deletion can avoid a full keyspace SCAN.
+        # Extra SADD = write amplification, but makes remove_indices fast.
+        self._client.sadd(self.member_key(index), key)
 
     def get_bucket(self, band_id: int, hash_val: bytes) -> set[int]:
         """
@@ -401,6 +431,12 @@ class RedisStorage:
             - Connection errors: Automatically retried by pipeline context
             - Redis errors: Raised after attempting all commands
             - Partial failures: Some commands may succeed before error
+
+        Write-amplification tradeoff:
+            For every bucket SADD this also records the bucket key in the
+            per-member reverse-index set ({prefix}:member:{index}), within the
+            same pipeline. This doubles the number of SADD commands but enables
+            O(buckets-per-member) deletion instead of a full keyspace SCAN.
         """
         # Early return for empty batch (avoid unnecessary pipeline creation)
         if not operations:
@@ -414,19 +450,20 @@ class RedisStorage:
             for band_id, hash_val, index in operations:
                 key = self.bucket_key(band_id, hash_val)
                 pipe.sadd(key, index)
+                # Reverse index: record the bucket key under the member set so
+                # remove_indices can delete without scanning all buckets.
+                pipe.sadd(self.member_key(index), key)
             # execute() is called automatically when exiting context manager
 
     def remove_indices(self, indices: Iterable[int]) -> None:
         """
-        Remove indices from every bucket key across all bands.
+        Remove indices from the buckets they belong to using the reverse index.
 
-        This operation is used when deleting vectors from your LSH index. It
-        scans through all buckets and removes the specified indices, ensuring
-        they won't appear in future search results.
-
-        Warning: This is a SLOW operation! It must:
-            1. Scan all keys matching the prefix pattern
-            2. Remove indices from each key found
+        This operation is used when deleting vectors from your LSH index. Rather
+        than scanning ALL bucket keys, it consults each member's reverse-index
+        set ({prefix}:member:{index}) to learn exactly which buckets the member
+        belongs to, removes it from only those buckets, then deletes the member
+        set itself.
 
         Typical use cases:
             - Hard deletion of vectors (GDPR compliance, content moderation)
@@ -434,18 +471,19 @@ class RedisStorage:
             - Index maintenance and cleanup
 
         Performance characteristics:
-            - Time: O(num_buckets × num_indices)
-            - For 10,000 buckets × 100 indices: ~5-30 seconds
-            - Blocks Redis during execution (use carefully in production)
+            - Time: O(num_indices × buckets-per-member)
+            - No full keyspace SCAN required (unlike the legacy implementation)
+            - Cost is paid up front as write amplification during ingestion
 
         Args:
-            indices: Vector indices to remove from all buckets.
+            indices: Vector indices to remove from their buckets.
                     Can be list, set, tuple, or any iterable.
                     Empty iterable is a no-op.
                     Duplicates are automatically handled.
+                    An empty/missing member set is a no-op for that index.
 
         Returns:
-            None. All matching indices are removed from all buckets.
+            None. Each index is removed from the buckets it belonged to.
 
         Example:
             >>> storage = RedisStorage()
@@ -465,44 +503,38 @@ class RedisStorage:
             set()
 
         Implementation details:
-            - Uses SCAN iterator (safe, doesn't block Redis for long)
-            - SCAN returns keys in undefined order
+            - SMEMBERS reads the member set to discover the exact bucket keys
             - SREM is idempotent (no error if index not in set)
-            - Pipeline batches all SREM commands for efficiency
-
-        Alternatives for better performance:
-            - Mark vectors as deleted (logical deletion) rather than removing
-            - Rebuild entire index periodically instead of incremental removal
-            - Use Redis key expiration (TTL) if deletion can be delayed
-
-        Production considerations:
-            - Run during off-peak hours (impacts Redis performance)
-            - Consider rate limiting if removing many indices
-            - Monitor Redis CPU usage during operation
-            - For large deletions, consider rebuilding index instead
+            - DEL removes the now-stale member set
+            - Pipeline batches the SREM/DEL commands for efficiency
+            - Bucket keys may come back as bytes (decode_responses=False) and
+              are decoded to str for use as Redis keys
         """
-        # Normalize to list for consistent iteration
-        # Allows reuse without exhausting iterator
-        normalized = list(indices)
+        # Normalize to set for consistent iteration / dedup
+        normalized = {int(idx) for idx in indices}
 
         # Early return for empty input
         if not normalized:
             return
 
-        # Pattern matches all bucket keys under this prefix
-        # Example: "lsh:*:bucket:*" matches "lsh:0:bucket:abc", "lsh:5:bucket:def", etc.
-        pattern = f"{self.prefix}:*:bucket:*"
-
-        # Use pipeline for batch removal (much faster than individual calls)
         with self.pipeline() as pipe:
-            # SCAN iterates through keyspace without blocking
-            # Returns keys matching pattern in chunks
-            for key in self._client.scan_iter(match=pattern):
-                # Queue SREM command for each key
-                # Removes all specified indices from the set
-                # No-op if indices not in set (SREM is idempotent)
-                pipe.srem(key, *normalized)
-            # All SREM commands execute when pipeline exits
+            for idx in normalized:
+                member = self.member_key(idx)
+
+                # Discover the exact bucket keys this member belongs to.
+                # Empty/missing member set => no-op for this index.
+                bucket_keys = self._client.smembers(member)  # type: ignore[union-attr]
+                for bucket_key in bucket_keys:  # type: ignore[union-attr]
+                    # Bucket keys may be bytes (decode_responses=False) - decode
+                    # to str so they can be used as Redis keys.
+                    if isinstance(bucket_key, bytes):
+                        bucket_key = bucket_key.decode("utf-8")
+                    # Remove this index from the bucket (idempotent).
+                    pipe.srem(bucket_key, idx)
+
+                # Drop the now-stale reverse-index set for this member.
+                pipe.delete(member)
+            # All commands execute when pipeline exits
 
     @contextmanager
     def pipeline(self) -> Iterator[redis.client.Pipeline]:  # type: ignore[name-defined]
@@ -628,6 +660,8 @@ class RedisStorage:
             - Collects all keys into list before deletion
             - Single DELETE command for all keys (atomic)
             - No-op if no keys match pattern
+            - The "{prefix}:*" pattern also matches the reverse-index
+              "{prefix}:member:*" keys, so they are cleared too
 
         Performance:
             - SCAN time: O(num_keys) but non-blocking
@@ -663,3 +697,30 @@ class RedisStorage:
         # No-op if keys list is empty (no error)
         if keys:
             self._client.delete(*keys)
+
+    def bucket_count(self) -> int:
+        """
+        Count the number of LSH bucket keys currently stored.
+
+        Counts keys matching "{prefix}:*:bucket:*" via a non-blocking SCAN.
+        Useful for observability/stats.
+
+        Returns:
+            int: Number of bucket keys under this prefix.
+        """
+        pattern = f"{self.prefix}:*:bucket:*"
+        return sum(1 for _ in self._client.scan_iter(match=pattern))
+
+    def member_count(self) -> int:
+        """
+        Count the number of reverse-index member keys currently stored.
+
+        Counts keys matching "{prefix}:member:*" via a non-blocking SCAN. Since
+        each indexed vector has exactly one member set, this equals the number
+        of distinct vectors currently in the index.
+
+        Returns:
+            int: Number of member (reverse-index) keys under this prefix.
+        """
+        pattern = f"{self.prefix}:member:*"
+        return sum(1 for _ in self._client.scan_iter(match=pattern))

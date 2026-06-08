@@ -65,8 +65,9 @@ class LSHRS:
     2. **Storage Management**: Persist hash buckets in Redis for fast retrieval
     3. **Query Processing**: Find similar vectors with optional cosine similarity reranking
 
-    The class supports both exact top-k retrieval (return k most similar) and
-    probabilistic top-p retrieval (return candidates covering p% of similarity mass).
+    The class supports both top-k retrieval (return k candidates by band
+    collisions) and top-p retrieval (return the top ceil(N*p) candidates by
+    cosine similarity, where N is the number of LSH candidates).
 
     Parameters
     ----------
@@ -537,15 +538,16 @@ class LSHRS:
            Fast, no reranking, based purely on LSH hash matches.
 
         2. **Top-p mode** (top_p provided): Reranks candidates by cosine similarity
-           and returns enough to cover p proportion of total similarity.
-           Requires vector_fetch_fn. More accurate but slower.
+           and returns the top ceil(N*p) candidates by cosine similarity, where N
+           is the number of LSH candidates. Requires vector_fetch_fn. More
+           accurate but slower.
 
         The method:
             1. Hashes query vector to get signatures
             2. Retrieves candidates from matching buckets
             3. Counts band collisions per candidate
             4. Either returns top-k by collision count OR
-            5. Reranks by cosine similarity and applies top-p cutoff
+            5. Reranks by cosine similarity and returns the top ceil(N*p)
 
         Parameters
         ----------
@@ -558,10 +560,11 @@ class LSHRS:
             limit. None returns all candidates (use carefully!).
 
         top_p : float, optional
-            Cumulative proportion threshold in (0, 1]. When provided:
+            Count-fraction threshold in (0, 1]. When provided:
             - Candidates are reranked by cosine similarity
-            - Returns smallest prefix covering p proportion of similarity mass
-            - Example: top_p=0.1 returns top 10% most similar
+            - Returns the top ceil(N*p) candidates by cosine similarity, where N
+              is the number of LSH candidates
+            - Example: top_p=0.1 returns the top 10% of candidates
             - Requires vector_fetch_fn to be configured
 
         Returns
@@ -646,7 +649,8 @@ class LSHRS:
         similarities = top_k_cosine(query_vector, arr, k=len(candidate_indices))
         ordered_scores = [(candidate_indices[pos], score) for pos, score in similarities]
 
-        # Apply top-p cutoff (return top p% of candidates)
+        # Apply top-p cutoff: return the top ceil(N*p) candidates by cosine
+        # similarity, where N is the number of LSH candidates.
         limit = max(1, math.ceil(len(ordered_scores) * top_p))
 
         # Also apply top_k limit if specified
@@ -692,21 +696,23 @@ class LSHRS:
         results = self.query(vector, top_k=topk, top_p=None)
         return list(results)  # type: ignore[return-value]
 
-    def get_above_p(self, vector: np.ndarray, p: float = 0.95) -> CandidateScores:
+    def get_above_p(self, vector: np.ndarray, p: float = 0.1) -> CandidateScores:
         """
         Convenience wrapper for top-p retrieval with cosine similarity reranking.
 
-        Returns candidates covering the top p proportion of similarity mass.
-        More accurate than get_top_k but requires fetching candidate vectors.
+        Returns the top ceil(N*p) candidates by cosine similarity, where N is the
+        number of LSH candidates. More accurate than get_top_k but requires
+        fetching candidate vectors.
 
         Parameters
         ----------
         vector : np.ndarray
             Query vector of dimension `dim`.
 
-        p : float, default=0.95
-            Proportion threshold in (0, 1]. Returns enough candidates to
-            cover this proportion of total similarity. Lower = more selective.
+        p : float, default=0.1
+            Count-fraction threshold in (0, 1]. Returns the top ceil(N*p)
+            candidates by cosine similarity, where N is the number of LSH
+            candidates. Lower = more selective. Default returns the top 10%.
 
         Returns
         -------
@@ -716,10 +722,13 @@ class LSHRS:
         Examples
         --------
         >>> query = np.random.randn(128)
-        >>> # Get top 5% most similar
+        >>> # Get the top 5% of candidates by cosine similarity
         >>> results = lsh.get_above_p(query, p=0.05)
         >>> results
         [(42, 0.95), (17, 0.93), (203, 0.91), ...]
+        >>>
+        >>> # Default returns the top 10% of candidates
+        >>> top_10pct = lsh.get_above_p(query)
         >>>
         >>> # Extract just indices
         >>> indices = [idx for idx, score in results]
@@ -745,9 +754,10 @@ class LSHRS:
         """
         Remove one or more vector indices from every Redis bucket.
 
-        This performs a hard deletion - the indices are removed from all
-        LSH buckets across all bands. Use sparingly as it's expensive (must
-        scan all bucket keys).
+        This performs a hard deletion - the indices are removed from the LSH
+        buckets they belong to. The storage layer uses a per-member reverse
+        index, so deletion is O(buckets-per-member) and does NOT scan all
+        bucket keys.
 
         Common use cases:
             - GDPR compliance (right to be forgotten)
@@ -774,8 +784,8 @@ class LSHRS:
 
         Notes
         -----
-        This operation is slow for large indices as it must scan all bucket keys.
-        Consider rebuilding the index periodically instead of many deletions.
+        Deletion cost is O(buckets-per-member) thanks to the reverse index;
+        the write-amplification tradeoff is paid during ingestion instead.
         """
         # Normalize to list for consistent handling
         to_remove = [indices] if isinstance(indices, int) else [int(idx) for idx in indices]
@@ -803,10 +813,13 @@ class LSHRS:
         Useful for logging, debugging, and ensuring consistent configuration
         across deployments.
 
+        This method only reads state; it has no side effects (in particular it
+        does NOT flush the pending buffer).
+
         Returns
         -------
         Dict[str, Any]
-            Configuration dictionary including:
+            Configuration and observability dictionary including:
             - dimension: Vector dimensionality
             - num_perm: Total hash bits
             - num_bands: Number of bands
@@ -814,6 +827,9 @@ class LSHRS:
             - buffer_size: Operation buffer size
             - similarity_threshold: Target similarity
             - redis_prefix: Key namespace
+            - num_vectors: Number of indexed vectors (storage member_count)
+            - num_buckets: Number of bucket keys (storage bucket_count)
+            - buffered_operations: Number of pending (unflushed) operations
 
         Examples
         --------
@@ -826,9 +842,16 @@ class LSHRS:
             'rows_per_band': 6,
             'buffer_size': 8912,
             'similarity_threshold': 0.5,
-            'redis_prefix': 'lsh'
+            'redis_prefix': 'lsh',
+            'num_vectors': 0,
+            'num_buckets': 0,
+            'buffered_operations': 0
         }
         """
+        # Snapshot the pending buffer length without mutating it.
+        with self._buffer_lock:
+            buffered_operations = len(self._buffer)
+
         return {
             "dimension": self._dim,
             "num_perm": self._config["num_perm"],
@@ -837,6 +860,9 @@ class LSHRS:
             "buffer_size": self._buffer_size,
             "similarity_threshold": self._config["similarity_threshold"],
             "redis_prefix": self._redis_config["prefix"],
+            "num_vectors": self._storage.member_count(),
+            "num_buckets": self._storage.bucket_count(),
+            "buffered_operations": buffered_operations,
         }
 
     # ---------------------------------------------------------------------
