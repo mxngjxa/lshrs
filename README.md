@@ -24,6 +24,7 @@ Redis-backed locality-sensitive hashing toolkit that stores bucket membership in
 - [Querying](#querying)
 - [Persistence & Lifecycle](#persistence--lifecycle)
 - [API Surface](#api-surface)
+- [Benchmarks](#benchmarks)
 - [Development & Testing](#development--testing)
 - [License](#license)
 
@@ -147,6 +148,27 @@ Because LSHRS stores only `bucket -> set-of-indices` membership, [`LSHRS.delete(
 | Hash persistence | [`save_to_disk()`](lshrs/core/main.py:830) / [`load_from_disk()`](lshrs/core/main.py:881) |
 | Redis maintenance | [`RedisStorage.clear()`](lshrs/storage/redis.py:582) / [`RedisStorage.remove_indices()`](lshrs/storage/redis.py:411) |
 | Probability utilities | [`compute_collision_probability()`](lshrs/utils/br.py:119) / [`compute_false_rates()`](lshrs/utils/br.py:161) |
+
+## Benchmarks
+
+A reproducible benchmark harness lives in [`benchmarks/`](benchmarks/). It
+generates synthetic random unit vectors and measures index build throughput,
+top-k / top-p query latency (p50/p95), the Redis footprint asymmetry behind the
+"~100x smaller" claim (raw `N x dim x 4` bytes vs the bucket index), and delete
+latency.
+
+```bash
+# Runs anywhere via in-memory fakeredis (functional timings, estimated footprint)
+uv run python benchmarks/run_benchmark.py --n 5000 --dim 256 --num-perm 128
+
+# Use a real Redis server for measured memory (MEMORY USAGE / INFO memory)
+uv run python benchmarks/run_benchmark.py --real-redis --redis-host localhost
+```
+
+Results print as a markdown table and are written to
+[`benchmarks/RESULTS_TEMPLATE.md`](benchmarks/RESULTS_TEMPLATE.md). See
+[`benchmarks/README.md`](benchmarks/README.md) for full details. All numbers are
+machine-dependent.
 
 > [!TIP]
 > [`get_optimal_config()`](lshrs/utils/br.py:326) picks bands/rows for a target similarity threshold. Large buckets signal low selectivity — raise `num_perm` or the threshold to trade recall for precision. Inspect distribution with `SCAN 0 MATCH lsh:*`.

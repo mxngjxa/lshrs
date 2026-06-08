@@ -54,6 +54,7 @@ parquet = [
 
 [dependency-groups]
 dev = [
+    "fakeredis>=2.36.1",
     "pytest>=9.0.1",
     "pytest-smoke>=0.10.0",
     "ruff>=0.14.5",
